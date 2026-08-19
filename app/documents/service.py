@@ -11,25 +11,49 @@ from app.documents.storage import FileStorage
 from app.identity.models import User
 from app.projects.permissions import ProjectAction, require_project_permission
 
+_PENDING_DOCUMENT_FILES = "pending_document_files"
+
 
 @event.listens_for(Session, "after_commit")
 def retain_committed_document_files(session: Session) -> None:
-    """Drop pending cleanup entries only after the outer transaction commits."""
-    if not session.in_nested_transaction():
-        session.info.pop("pending_document_files", None)
+    """Promote committed savepoint files or discard outer-commit cleanup state."""
+    pending_by_transaction = session.info.get(_PENDING_DOCUMENT_FILES)
+    if pending_by_transaction is None:
+        return
+
+    transaction = session.get_nested_transaction() or session.get_transaction()
+    if transaction is None or transaction.parent is None:
+        session.info.pop(_PENDING_DOCUMENT_FILES, None)
+        return
+
+    pending = pending_by_transaction.pop(transaction, [])
+    if pending:
+        pending_by_transaction.setdefault(transaction.parent, []).extend(pending)
+    if not pending_by_transaction:
+        session.info.pop(_PENDING_DOCUMENT_FILES, None)
 
 
 @event.listens_for(Session, "after_soft_rollback")
 def remove_rolled_back_document_files(session: Session, transaction) -> None:
-    """Compensate persisted files only when the caller's outer transaction rolls back."""
-    if transaction.parent is None:
-        pending = session.info.pop("pending_document_files", [])
-        for storage, storage_key in pending:
-            storage.delete(storage_key)
+    """Compensate only files registered in the transaction that rolled back."""
+    pending_by_transaction = session.info.get(_PENDING_DOCUMENT_FILES)
+    if pending_by_transaction is None:
+        return
+
+    pending = pending_by_transaction.pop(transaction, [])
+    for storage, storage_key in pending:
+        storage.delete(storage_key)
+    if not pending_by_transaction:
+        session.info.pop(_PENDING_DOCUMENT_FILES, None)
 
 
 def _register_file_cleanup(session: Session, storage: FileStorage, storage_key: str) -> None:
-    session.info.setdefault("pending_document_files", []).append((storage, storage_key))
+    transaction = session.get_nested_transaction() or session.get_transaction()
+    if transaction is None:
+        raise RuntimeError("Document version file must be registered within a transaction")
+    session.info.setdefault(_PENDING_DOCUMENT_FILES, {}).setdefault(transaction, []).append(
+        (storage, storage_key)
+    )
 
 
 def create_document(

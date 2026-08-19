@@ -240,6 +240,44 @@ def test_version_file_is_removed_on_outer_rollback(db_session: Session, tmp_path
     assert not list(file_storage.root.rglob("*.tmp"))
 
 
+def test_version_file_cleanup_tracks_nested_savepoints(db_session: Session, tmp_path: Path):
+    owner = user_factory(db_session, "savepoint-owner")
+    project = project_for(db_session, owner)
+    owner_id = owner.id
+    project_id = UUID(project.id)
+    db_session.rollback()
+    from app.documents.service import create_document
+
+    file_storage = FileStorage(Settings(environment="test", storage_dir=tmp_path / "storage"))
+
+    with db_session.begin():
+        actor = db_session.get(User, owner_id)
+        assert actor is not None
+        document = create_document(db_session, project_id, "Savepoints", "finance", "report", actor)
+        before_rollback = create_version(
+            db_session, file_storage, UUID(document.id), b"before rollback", actor
+        )
+        before_rollback_path = file_storage.path_for(before_rollback.storage_key)
+
+        with pytest.raises(RuntimeError, match="roll back savepoint"), db_session.begin_nested():
+            rolled_back = create_version(
+                db_session, file_storage, UUID(document.id), b"rolled back", actor
+            )
+            rolled_back_path = file_storage.path_for(rolled_back.storage_key)
+            assert rolled_back_path.exists()
+            raise RuntimeError("roll back savepoint")
+
+        with db_session.begin_nested():
+            retained = create_version(db_session, file_storage, UUID(document.id), b"retained", actor)
+            retained_path = file_storage.path_for(retained.storage_key)
+            assert retained_path.exists()
+
+    assert before_rollback_path.exists()
+    assert not rolled_back_path.exists()
+    assert retained_path.exists()
+    assert not list(file_storage.root.rglob("*.tmp"))
+
+
 def test_migrated_document_versions_reject_raw_updates(tmp_path: Path, monkeypatch):
     database_url = f"sqlite:///{tmp_path / 'documents-migrated.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
