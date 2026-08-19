@@ -22,12 +22,29 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("username", sa.String(length=255), nullable=False),
         sa.Column("password_hash", sa.String(length=512), nullable=False),
-        sa.Column("role", sa.Enum("user", "reviewer", "admin", name="role", native_enum=False), nullable=False),
+        sa.Column(
+            "role",
+            sa.Enum(
+                "user",
+                "reviewer",
+                "admin",
+                name="role",
+                native_enum=False,
+                create_constraint=False,
+            ),
+            nullable=False,
+        ),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("role IN ('user', 'reviewer', 'admin')", name=op.f("ck_users_role")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
-        sa.UniqueConstraint("username", name=op.f("uq_users_username")),
+    )
+    op.create_index(
+        "uq_users_username_normalized",
+        "users",
+        [sa.text("lower(trim(username))")],
+        unique=True,
     )
 
 

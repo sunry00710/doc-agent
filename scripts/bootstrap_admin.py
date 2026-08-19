@@ -31,7 +31,10 @@ def bootstrap_admin(session: Session, username: str, password: str) -> User:
         is_active=True,
     )
     try:
-        return add_user(session, user)
+        user = add_user(session, user)
+        session.commit()
+        session.refresh(user)
+        return user
     except IntegrityError as exc:
         session.rollback()
         raise ValueError("Username already exists") from exc

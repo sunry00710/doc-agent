@@ -9,3 +9,6 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     return _password_hash.verify(password, password_hash)
+
+
+DUMMY_PASSWORD_HASH = hash_password("dummy-password-for-unknown-user")

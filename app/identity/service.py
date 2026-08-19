@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from app.core.errors import AppError
-from app.core.security import verify_password
+from app.core.security import DUMMY_PASSWORD_HASH, verify_password
 from app.identity.models import User
 from app.identity.repository import get_user_by_id, get_user_by_username
 from jwt.exceptions import InvalidTokenError
@@ -18,7 +18,17 @@ def authentication_error() -> AppError:
 
 def authenticate_user(session: Session, username: str, password: str) -> User:
     user = get_user_by_username(session, username)
-    if user is None or not verify_password(password, user.password_hash) or not user.is_active:
+    password_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
+    try:
+        password_matches = verify_password(password, password_hash)
+    except (TypeError, ValueError):
+        password_matches = False
+    except Exception as exc:
+        if exc.__class__.__module__.startswith("pwdlib"):
+            password_matches = False
+        else:
+            raise
+    if user is None or not password_matches or not user.is_active:
         raise authentication_error()
     return user
 

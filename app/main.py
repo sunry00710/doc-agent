@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorEnvelope, PublicError
+from app.db.session import create_database_engine, create_session_factory
 from app.identity.router import router as auth_router
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,8 @@ def _public_http_error(status_code: int) -> AppError:
 def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Doc Agent")
     app.state.settings = settings or Settings()
+    app.state.database_engine = create_database_engine(app.state.settings.database_url)
+    app.state.session_factory = create_session_factory(app.state.database_engine)
 
     @app.middleware("http")
     async def add_request_id(
