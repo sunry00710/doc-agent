@@ -14,6 +14,7 @@ from app.core.config import Settings
 from app.core.errors import AppError, ErrorEnvelope, PublicError
 from app.db.session import create_database_engine, create_session_factory
 from app.identity.router import router as auth_router
+from app.projects.router import router as projects_router
 
 logger = logging.getLogger(__name__)
 
@@ -117,4 +118,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ready"}
 
     app.include_router(auth_router)
+    app.include_router(projects_router)
     return app
