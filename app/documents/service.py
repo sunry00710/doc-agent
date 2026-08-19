@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import event, select, update
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
@@ -12,7 +11,25 @@ from app.documents.storage import FileStorage
 from app.identity.models import User
 from app.projects.permissions import ProjectAction, require_project_permission
 
-MAX_VERSION_ATTEMPTS = 3
+
+@event.listens_for(Session, "after_commit")
+def retain_committed_document_files(session: Session) -> None:
+    """Drop pending cleanup entries only after the outer transaction commits."""
+    if not session.in_nested_transaction():
+        session.info.pop("pending_document_files", None)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def remove_rolled_back_document_files(session: Session, transaction) -> None:
+    """Compensate persisted files only when the caller's outer transaction rolls back."""
+    if transaction.parent is None:
+        pending = session.info.pop("pending_document_files", [])
+        for storage, storage_key in pending:
+            storage.delete(storage_key)
+
+
+def _register_file_cleanup(session: Session, storage: FileStorage, storage_key: str) -> None:
+    session.info.setdefault("pending_document_files", []).append((storage, storage_key))
 
 
 def create_document(
@@ -52,23 +69,18 @@ def create_version(
     document = _require_document_permission(session, document_id, actor, ProjectAction.edit)
     stored = storage.store(filename, content)
     try:
-        for _attempt in range(MAX_VERSION_ATTEMPTS):
-            version = DocumentVersion(
-                document_id=document.id,
-                number=_next_version_number(session, document.id),
-                content_sha256=stored.content_sha256,
-                storage_key=stored.storage_key,
-                created_by=actor.id,
-            )
-            try:
-                with session.begin_nested():
-                    session.add(version)
-                    session.flush()
-                return version
-            except IntegrityError as exc:
-                if not _is_version_number_conflict(exc):
-                    raise
-        raise AppError("conflict", "Unable to create document version", 409, retryable=True)
+        number = _allocate_version_number(session, document.id)
+        version = DocumentVersion(
+            document_id=document.id,
+            number=number,
+            content_sha256=stored.content_sha256,
+            storage_key=stored.storage_key,
+            created_by=actor.id,
+        )
+        session.add(version)
+        session.flush()
+        _register_file_cleanup(session, storage, stored.storage_key)
+        return version
     except Exception:
         storage.delete(stored.storage_key)
         raise
@@ -112,15 +124,11 @@ def _require_document_permission(
     return document
 
 
-def _next_version_number(session: Session, document_id: str) -> int:
-    current = session.scalar(
-        select(func.max(DocumentVersion.number)).where(DocumentVersion.document_id == document_id)
-    )
-    return (current or 0) + 1
-
-
-def _is_version_number_conflict(exc: IntegrityError) -> bool:
-    message = str(exc.orig).lower()
-    return "document_versions.document_id, document_versions.number" in message or (
-        "uq_document_versions_document_number" in message
-    )
+def _allocate_version_number(session: Session, document_id: str) -> int:
+    allocated = session.execute(
+        update(Document)
+        .where(Document.id == document_id)
+        .values(next_version_number=Document.next_version_number + 1)
+        .returning(Document.next_version_number)
+    ).scalar_one()
+    return allocated - 1

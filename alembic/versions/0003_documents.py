@@ -27,6 +27,7 @@ def upgrade() -> None:
         sa.Column("domain", sa.String(length=255), nullable=False),
         sa.Column("document_type", sa.String(length=255), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("next_version_number", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("status IN ('draft')", name=op.f("ck_documents_status")),
         sa.ForeignKeyConstraint(
@@ -61,17 +62,33 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_document_versions_created_by"), "document_versions", ["created_by"])
     op.create_index(op.f("ix_document_versions_document_id"), "document_versions", ["document_id"])
-    if op.get_bind().dialect.name == "sqlite":
+    dialect = op.get_bind().dialect.name
+    if dialect == "sqlite":
         op.execute(
             "CREATE TRIGGER prevent_document_version_update "
             "BEFORE UPDATE ON document_versions "
             "BEGIN SELECT RAISE(ABORT, 'document versions are immutable'); END"
         )
+    elif dialect == "postgresql":
+        op.execute(
+            "CREATE FUNCTION reject_document_version_update() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ BEGIN "
+            "RAISE EXCEPTION 'document versions are immutable'; END; $$"
+        )
+        op.execute(
+            "CREATE TRIGGER prevent_document_version_update "
+            "BEFORE UPDATE ON document_versions "
+            "FOR EACH ROW EXECUTE FUNCTION reject_document_version_update()"
+        )
 
 
 def downgrade() -> None:
-    if op.get_bind().dialect.name == "sqlite":
+    dialect = op.get_bind().dialect.name
+    if dialect == "sqlite":
         op.execute("DROP TRIGGER prevent_document_version_update")
+    elif dialect == "postgresql":
+        op.execute("DROP TRIGGER prevent_document_version_update ON document_versions")
+        op.execute("DROP FUNCTION reject_document_version_update()")
     op.drop_index(op.f("ix_document_versions_document_id"), table_name="document_versions")
     op.drop_index(op.f("ix_document_versions_created_by"), table_name="document_versions")
     op.drop_table("document_versions")

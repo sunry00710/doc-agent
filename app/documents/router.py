@@ -25,6 +25,13 @@ def get_storage(request: Request) -> FileStorage:
     return FileStorage(request.app.state.settings)
 
 
+def read_upload_content(file_object: object, max_upload_bytes: int) -> bytes:
+    content = file_object.read(max_upload_bytes + 1)
+    if len(content) > max_upload_bytes:
+        raise ValueError("Document is too large")
+    return content
+
+
 @router.post("", response_model=DocumentRead, status_code=status.HTTP_201_CREATED)
 def create(
     data: DocumentCreate,
@@ -49,11 +56,15 @@ def upload(
     storage: Annotated[FileStorage, Depends(get_storage)],
 ):
     try:
-        content = file.file.read()
+        content = read_upload_content(file.file, storage.max_upload_bytes)
         version = create_version(session, storage, document_id, content, current_user, file.filename)
     except ValueError as exc:
         raise AppError("validation_error", "Invalid document upload", 422) from exc
-    session.commit()
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     return version
 
 

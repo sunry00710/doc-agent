@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -25,7 +27,18 @@ class FileStorage:
         storage_key = f"documents/{uuid4()}/{uuid4()}.txt"
         path = self.path_for(storage_key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(normalized)
+        descriptor, temp_name = tempfile.mkstemp(
+            suffix=".tmp", prefix=".upload-", dir=path.parent
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as temp_file:
+                temp_file.write(normalized)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_name, path)
+        except Exception:
+            Path(temp_name).unlink(missing_ok=True)
+            raise
         return StoredContent(
             storage_key=storage_key,
             content_sha256=hashlib.sha256(normalized).hexdigest(),

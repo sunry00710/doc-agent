@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import app.documents.storage as storage_module
 from app.core.config import Settings
 from app.documents.storage import FileStorage
 
@@ -50,6 +51,28 @@ def test_invalid_utf8_and_oversize_content_are_rejected(tmp_path: Path):
         file_storage.store("draft.md", b"\xff")
     with pytest.raises(ValueError, match="too large"):
         file_storage.store("draft.md", b"1234")
+
+
+def test_store_replaces_a_durable_temp_file_without_leaving_temps(tmp_path: Path, monkeypatch):
+    file_storage = storage(tmp_path)
+    replaced: list[tuple[Path, Path]] = []
+    original_replace = storage_module.os.replace
+
+    def recording_replace(source: Path, destination: Path) -> None:
+        replaced.append((Path(source), Path(destination)))
+        original_replace(source, destination)
+
+    monkeypatch.setattr(storage_module.os, "replace", recording_replace)
+
+    stored = file_storage.store("draft.md", b"draft")
+
+    assert len(replaced) == 1
+    temp_path, final_path = replaced[0]
+    assert temp_path.parent == final_path.parent
+    assert final_path == file_storage.path_for(stored.storage_key)
+    assert final_path.read_bytes() == b"draft"
+    assert not temp_path.exists()
+    assert not list(file_storage.root.rglob("*.tmp"))
 
 
 def test_normalizes_line_endings_before_storage_and_hashing(tmp_path: Path):

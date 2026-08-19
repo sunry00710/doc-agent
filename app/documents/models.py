@@ -32,6 +32,7 @@ class Document(Base):
     domain: Mapped[str] = mapped_column(String(255), nullable=False)
     document_type: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    next_version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )

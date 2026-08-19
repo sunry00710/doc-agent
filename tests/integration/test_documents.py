@@ -1,17 +1,23 @@
 from pathlib import Path
+from threading import Barrier, Thread
 from uuid import UUID
 
 import pytest
+import sqlalchemy as sa
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
 from app.core.config import Settings
 from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.documents.models import DocumentVersion
+from app.documents.router import read_upload_content
 from app.documents.service import create_version
+from app.documents.storage import FileStorage
 from app.identity.models import Role, User
 from app.main import create_app
 from app.projects.models import MembershipRole, Project, ProjectMember
@@ -173,6 +179,27 @@ def test_upload_validation_and_missing_document_are_safe(client: TestClient, db_
     assert_safe_error(too_large, 422, "validation_error", "Invalid document upload")
 
 
+class RecordingUpload:
+    def __init__(self, content: bytes):
+        self.content = content
+        self.read_sizes: list[int] = []
+
+    def read(self, size: int = -1) -> bytes:
+        self.read_sizes.append(size)
+        if size < 0:
+            raise AssertionError("upload reads must be bounded")
+        return self.content[:size]
+
+
+def test_upload_read_is_bounded_before_validation():
+    upload = RecordingUpload(b"x" * 65)
+
+    with pytest.raises(ValueError, match="too large"):
+        read_upload_content(upload, 64)
+
+    assert upload.read_sizes == [65]
+
+
 def test_versions_are_monotonic_and_immutable_at_orm_and_database_boundaries(
     db_session: Session, tmp_path: Path
 ):
@@ -194,3 +221,108 @@ def test_versions_are_monotonic_and_immutable_at_orm_and_database_boundaries(
         db_session.flush()
     db_session.rollback()
     assert db_session.get(DocumentVersion, first.id).storage_key != "changed"
+
+
+def test_version_file_is_removed_on_outer_rollback(db_session: Session, tmp_path: Path):
+    owner = user_factory(db_session, "rollback-owner")
+    project = project_for(db_session, owner)
+    from app.documents.service import create_document
+
+    document = create_document(db_session, project.id, "Rollback", "finance", "report", owner)
+    file_storage = FileStorage(Settings(environment="test", storage_dir=tmp_path / "storage"))
+    version = create_version(db_session, file_storage, UUID(document.id), b"draft", owner)
+    final_path = file_storage.path_for(version.storage_key)
+    assert final_path.exists()
+
+    db_session.rollback()
+
+    assert not final_path.exists()
+    assert not list(file_storage.root.rglob("*.tmp"))
+
+
+def test_migrated_document_versions_reject_raw_updates(tmp_path: Path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path / 'documents-migrated.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "0003_documents")
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO users (id, username, password_hash, role, is_active, created_at, updated_at) "
+                    "VALUES ('user', 'user', 'hash', 'user', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO projects (id, name, created_at, updated_at) "
+                    "VALUES ('project', 'P', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO documents "
+                    "(id, project_id, owner_id, title, domain, document_type, status, next_version_number, created_at) "
+                    "VALUES ('document', 'project', 'user', 'D', 'finance', 'report', 'draft', 2, CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO document_versions "
+                    "(id, document_id, number, content_sha256, storage_key, created_by, created_at) "
+                    "VALUES ('version', 'document', 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'documents/a/b.txt', 'user', CURRENT_TIMESTAMP)"
+                )
+            )
+        with pytest.raises(sa.exc.IntegrityError, match="immutable"), engine.begin() as connection:
+            connection.execute(sa.text("UPDATE document_versions SET storage_key = 'changed'"))
+    finally:
+        engine.dispose()
+
+
+def test_atomic_version_allocation_is_monotonic_across_sessions(tmp_path: Path):
+    database_url = f"sqlite:///{tmp_path / 'concurrent.db'}"
+    from app.db.session import create_database_engine, create_session_factory
+    from app.documents.service import create_document
+
+    engine = create_database_engine(database_url)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    try:
+        with factory() as setup_session:
+            owner = user_factory(setup_session, "concurrent-owner")
+            project = project_for(setup_session, owner)
+            document = create_document(setup_session, project.id, "Concurrent", "finance", "report", owner)
+            setup_session.commit()
+            document_id = UUID(document.id)
+            owner_id = owner.id
+        file_storage = FileStorage(Settings(environment="test", storage_dir=tmp_path / "storage"))
+        barrier = Barrier(4)
+        errors: list[Exception] = []
+
+        def create_in_session(index: int) -> None:
+            try:
+                with factory() as session:
+                    actor = session.get(User, owner_id)
+                    assert actor is not None
+                    barrier.wait()
+                    create_version(session, file_storage, document_id, f"draft {index}".encode(), actor)
+                    session.commit()
+            except Exception as exc:  # noqa: BLE001 - test reports worker failures after joining.
+                errors.append(exc)
+
+        threads = [Thread(target=create_in_session, args=(index,)) for index in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert not errors
+        with factory() as session:
+            numbers = session.scalars(
+                sa.select(DocumentVersion.number).order_by(DocumentVersion.number)
+            ).all()
+        assert numbers == [1, 2, 3, 4]
+    finally:
+        engine.dispose()
