@@ -1,0 +1,12 @@
+{
+  "content": null,
+  "tool_calls": [
+    {
+      "id": "call_echo",
+      "name": "echo",
+      "arguments": "{\"value\":\"hello\"}"
+    }
+  ],
+  "input_tokens": 12,
+  "output_tokens": 8
+}

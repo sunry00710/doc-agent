@@ -10,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.agent.router import router as agent_router
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorEnvelope, PublicError
 from app.db.session import create_database_engine, create_session_factory
@@ -121,4 +122,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(projects_router)
     app.include_router(documents_router)
+    app.include_router(agent_router)
     return app
