@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
@@ -13,10 +14,10 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.security import hash_password
 from app.db.base import Base
-from app.db.session import get_db
+from app.db.session import create_database_engine, get_db
 from app.identity.models import Role, User
 from app.main import create_app
-from app.projects.models import MembershipRole, ProjectMember
+from app.projects.models import MembershipRole, Project, ProjectMember
 from app.projects.permissions import ProjectAction, require_project_permission
 from app.projects.service import add_project_member
 from app.projects.service import create_project as create_project_service
@@ -203,6 +204,93 @@ def test_explicit_permission_matrix_covers_every_project_action(
             with pytest.raises(AppError) as caught:
                 require_project_permission(UUID(project["id"]), action, member, db_session)
             assert caught.value.code == "permission_denied"
+
+
+def test_admin_can_assign_member_without_receiving_project_access(client, user_factory):
+    owner = user_factory("owner")
+    admin = user_factory("admin", Role.admin)
+    target = user_factory("target")
+    project = create_project(client, owner)
+    endpoint = f"/api/projects/{project['id']}/members"
+
+    added = client.post(
+        endpoint,
+        json={"user_id": target.id, "membership_role": "contributor"},
+        headers=auth_headers(client, admin.username),
+    )
+
+    assert added.status_code == 201
+    assert added.json()["user_id"] == target.id
+    assert client.get("/api/projects", headers=auth_headers(client, admin.username)).json() == []
+    denied = client.get(endpoint, headers=auth_headers(client, admin.username))
+    assert_safe_error(denied, 403, "permission_denied", "Project access denied")
+
+
+def test_duplicate_integrity_error_is_translated_and_session_remains_usable(
+    db_session, user_factory, monkeypatch
+):
+    owner = user_factory("owner-integrity")
+    target = user_factory("target-integrity")
+    project = create_project_service(db_session, "Integrity", owner)
+    db_session.commit()
+
+    original_flush = db_session.flush
+
+    def duplicate_flush(*args, **kwargs):
+        if any(isinstance(item, ProjectMember) for item in db_session.new):
+            raise IntegrityError(
+                "INSERT",
+                {},
+                Exception(
+                    "UNIQUE constraint failed: project_members.project_id, project_members.user_id"
+                ),
+            )
+        return original_flush(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "flush", duplicate_flush)
+    with pytest.raises(AppError) as caught:
+        add_project_member(
+            db_session, UUID(project.id), UUID(target.id), MembershipRole.reviewer, owner
+        )
+    assert caught.value.code == "membership_exists"
+    assert db_session.get(type(project), project.id) is not None
+
+
+def test_database_engine_enables_sqlite_foreign_keys_and_cascades(tmp_path):
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'fk.db'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as session:
+        user = User(username="fk-user", password_hash="hash")
+        project = Project(name="Foreign keys")
+        session.add_all((user, project))
+        session.flush()
+        with pytest.raises(sa.exc.IntegrityError):
+            session.add(
+                ProjectMember(
+                    project_id="missing",
+                    user_id=user.id,
+                    membership_role=MembershipRole.contributor,
+                )
+            )
+            session.flush()
+        session.rollback()
+        user = User(username="cascade-user", password_hash="hash")
+        project = Project(name="Cascade")
+        session.add_all((user, project))
+        session.commit()
+        session.add(
+            ProjectMember(
+                project_id=project.id,
+                user_id=user.id,
+                membership_role=MembershipRole.contributor,
+            )
+        )
+        session.commit()
+        session.delete(project)
+        session.commit()
+        assert session.scalar(sa.select(ProjectMember)) is None
+    engine.dispose()
 
 
 def test_only_owner_can_add_members_and_duplicate_membership_is_rejected(
