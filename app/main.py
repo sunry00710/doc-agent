@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorEnvelope, PublicError
+from app.identity.router import router as auth_router
 
 logger = logging.getLogger(__name__)
 
@@ -112,4 +113,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ready"}
 
+    app.include_router(auth_router)
     return app
