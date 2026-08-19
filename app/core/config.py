@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr(DEVELOPMENT_JWT_SECRET)
     model_provider: str = "anthropic"
     storage_dir: Path = Path("./storage")
+    max_upload_bytes: int = 10 * 1024 * 1024
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

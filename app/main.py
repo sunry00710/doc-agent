@@ -13,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorEnvelope, PublicError
 from app.db.session import create_database_engine, create_session_factory
+from app.documents.router import router as documents_router
 from app.identity.router import router as auth_router
 from app.projects.router import router as projects_router
 
@@ -119,4 +120,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(projects_router)
+    app.include_router(documents_router)
     return app

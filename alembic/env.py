@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.core.config import Settings
 from app.db.base import Base
+from app.documents import models as document_models  # noqa: F401
 from app.identity import models  # noqa: F401
 from app.projects import models as project_models  # noqa: F401
 
