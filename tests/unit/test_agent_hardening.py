@@ -132,6 +132,29 @@ class StrictTrace(BaseModel):
     public_value: str
 
 
+class PermissiveTrace(BaseModel):
+    public_value: str
+
+
+def test_idempotency_expired_inflight_claim_is_not_stolen(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr("app.agent.tools.time.monotonic", lambda: now[0])
+    store = InMemoryIdempotencyStore(ttl_seconds=1)
+    key = ("actor", "write", "key")
+    assert store.claim(key)[0] == "owner"
+    now[0] = 2.0
+    assert store.claim(key)[0] == "follower"
+
+
+def test_trace_serializer_requires_strict_output_model():
+    registry = ToolRegistry()
+    with pytest.raises(ValueError, match="forbid"):
+        registry.register(ToolDefinition(
+            "unsafe", "Unsafe", EchoArgs, lambda *_: None,
+            trace_serializer=lambda *_: {"public_value": "ok"}, trace_output_model=PermissiveTrace,
+        ))
+
+
 def test_mutating_concurrent_identical_calls_execute_once_and_followers_receive_result():
     entered = threading.Event()
     release = threading.Event()

@@ -32,6 +32,14 @@ class ToolDefinition:
         return {"name": self.name, "description": self.description, "parameters": self.input_model.model_json_schema()}
 
 
+@dataclass
+class _IdempotencyEntry:
+    expires_at: float
+    result: object
+    event: threading.Event
+    owner: threading.Thread | None
+
+
 class InMemoryIdempotencyStore:
     """Process-local bounded claims and completed results for mutating tool calls."""
 
@@ -41,18 +49,24 @@ class InMemoryIdempotencyStore:
         self.max_entries = max_entries
         self.ttl_seconds = ttl_seconds
         self.wait_timeout_seconds = wait_timeout_seconds
-        self._entries: OrderedDict[tuple[str, str, str], tuple[float, object, threading.Event]] = OrderedDict()
+        self._entries: OrderedDict[tuple[str, str, str], _IdempotencyEntry] = OrderedDict()
         self._lock = threading.Lock()
 
     def _cleanup(self, now: float) -> None:
-        for key, (expires_at, result, event) in list(self._entries.items()):
-            if expires_at <= now and (result is not _MISSING or event.is_set()):
+        for key, entry in list(self._entries.items()):
+            if entry.expires_at > now:
+                continue
+            if entry.result is not _MISSING or entry.event.is_set() or not self._owner_alive(entry):
                 self._entries.pop(key, None)
         while len(self._entries) > self.max_entries:
-            key, (_, result, event) = next(iter(self._entries.items()))
-            if result is _MISSING and not event.is_set():
+            key, entry = next(iter(self._entries.items()))
+            if entry.result is _MISSING and not entry.event.is_set() and self._owner_alive(entry):
                 break
             self._entries.pop(key)
+
+    @staticmethod
+    def _owner_alive(entry: _IdempotencyEntry) -> bool:
+        return entry.owner is not None and entry.owner.is_alive()
 
     def claim(self, key: tuple[str, str, str]) -> tuple[str, object | None, threading.Event | None]:
         with self._lock:
@@ -63,26 +77,21 @@ class InMemoryIdempotencyStore:
                 if len(self._entries) >= self.max_entries:
                     return "unavailable", None, None
                 event = threading.Event()
-                self._entries[key] = (now + self.ttl_seconds, _MISSING, event)
+                self._entries[key] = _IdempotencyEntry(now + self.ttl_seconds, _MISSING, event, threading.current_thread())
                 return "owner", None, event
-            expires_at, result, event = entry
             self._entries.move_to_end(key)
-            if result is not _MISSING:
-                return "cached", result, None
-            if expires_at <= now:
-                self._entries.pop(key, None)
-                if len(self._entries) >= self.max_entries:
-                    return "unavailable", None, None
-                event = threading.Event()
-                self._entries[key] = (now + self.ttl_seconds, _MISSING, event)
-                return "owner", None, event
-            return "follower", None, event
+            if entry.result is not _MISSING:
+                return "cached", entry.result, None
+            # Never steal an expired in-flight claim: its handler may still be
+            # producing an irreversible side effect. Followers receive the
+            # bounded wait/in-progress response instead.
+            return "follower", None, entry.event
 
     def complete(self, key: tuple[str, str, str], result: object, event: threading.Event) -> None:
         with self._lock:
             entry = self._entries.get(key)
-            if entry is not None and entry[2] is event:
-                self._entries[key] = (time.monotonic() + self.ttl_seconds, result, event)
+            if entry is not None and entry.event is event:
+                self._entries[key] = _IdempotencyEntry(time.monotonic() + self.ttl_seconds, result, event, None)
                 self._entries.move_to_end(key)
                 self._cleanup(time.monotonic())
             event.set()
@@ -90,7 +99,7 @@ class InMemoryIdempotencyStore:
     def release(self, key: tuple[str, str, str], event: threading.Event) -> None:
         with self._lock:
             entry = self._entries.get(key)
-            if entry is not None and entry[2] is event:
+            if entry is not None and entry.event is event:
                 self._entries.pop(key, None)
             event.set()
 
@@ -99,9 +108,9 @@ class InMemoryIdempotencyStore:
             return None, "idempotency_in_progress"
         with self._lock:
             entry = self._entries.get(key)
-            if entry is not None and entry[1] is not _MISSING:
+            if entry is not None and entry.result is not _MISSING:
                 self._entries.move_to_end(key)
-                return entry[1], None
+                return entry.result, None
         return None, "idempotency_in_progress"
 
 
@@ -117,6 +126,8 @@ class ToolRegistry:
             raise ValueError("mutating tools require an explicit permission or authorizer")
         if definition.trace_serializer and definition.trace_output_model is None:
             raise ValueError("trace serializers require a trace output model")
+        if definition.trace_output_model is not None and definition.trace_output_model.model_config.get("extra") != "forbid":
+            raise ValueError("trace output models must forbid extra fields")
         self._tools[definition.name] = definition
 
     def definitions(self) -> list[ToolDefinition]:
@@ -182,12 +193,18 @@ class ToolRegistry:
 
     @staticmethod
     def trace_result(definition: ToolDefinition | None, model: BaseModel | None, result: object) -> object:
-        if definition and definition.trace_serializer and definition.trace_output_model and model:
+        if (
+            definition
+            and definition.trace_serializer
+            and definition.trace_output_model
+            and definition.trace_output_model.model_config.get("extra") == "forbid"
+            and model
+        ):
             try:
                 serialized = definition.trace_serializer(model, result)
                 output = definition.trace_output_model.model_validate(serialized).model_dump(mode="json")
                 if len(json.dumps(output, separators=(",", ":"), ensure_ascii=False)) <= _TRACE_OUTPUT_MAX_CHARS:
                     return output
-            except (TypeError, ValueError, ValidationError, OverflowError):
+            except Exception:  # noqa: BLE001,S110 - trace generation must never expose or fail a tool call.
                 pass
         return ToolRegistry.safe_output(definition, model, result)
