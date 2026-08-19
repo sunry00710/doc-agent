@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -26,6 +27,8 @@ class OpenAICompatibleProvider(ModelProvider):
         input_cost_micro_units_per_token: int = 0,
         output_cost_micro_units_per_token: int = 0,
         client: httpx.Client | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.api_key = api_key
@@ -35,6 +38,8 @@ class OpenAICompatibleProvider(ModelProvider):
         self.input_cost_micro_units_per_token = input_cost_micro_units_per_token
         self.output_cost_micro_units_per_token = output_cost_micro_units_per_token
         self.client = client or httpx.Client(timeout=timeout_seconds)
+        self._monotonic = monotonic
+        self._sleeper = sleeper
 
     def complete(self, request: CompletionRequest) -> CompletionResult:
         payload: dict[str, Any] = {
@@ -48,14 +53,18 @@ class OpenAICompatibleProvider(ModelProvider):
         if request.request_id:
             headers["X-Request-ID"] = request.request_id
         timeout = min(self.timeout_seconds, request.timeout_seconds) if request.timeout_seconds else self.timeout_seconds
+        deadline = self._monotonic() + timeout
         for attempt in range(self.retries + 1):
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                raise ProviderError("provider_unavailable", retryable=True)
             try:
                 response = self.client.post(
-                    f"{self.endpoint}/chat/completions", json=payload, headers=headers, timeout=timeout
+                    f"{self.endpoint}/chat/completions", json=payload, headers=headers, timeout=remaining
                 )
                 if response.status_code in {429} or response.status_code >= 500:
                     if attempt < self.retries:
-                        time.sleep(0.05 * (attempt + 1))
+                        self._sleep_for_retry(0.05 * (attempt + 1), deadline)
                         continue
                     raise ProviderError("provider_unavailable", retryable=True)
                 if response.status_code >= 400:
@@ -63,7 +72,7 @@ class OpenAICompatibleProvider(ModelProvider):
                 return self._parse_response(response.json(), response.headers.get("X-Request-ID"))
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 if attempt < self.retries:
-                    time.sleep(0.05 * (attempt + 1))
+                    self._sleep_for_retry(0.05 * (attempt + 1), deadline)
                     continue
                 raise ProviderError("provider_unavailable", retryable=True) from exc
             except ProviderError:
@@ -71,6 +80,12 @@ class OpenAICompatibleProvider(ModelProvider):
             except (KeyError, TypeError, ValueError) as exc:
                 raise ProviderError("provider_invalid_response") from exc
         raise ProviderError("provider_unavailable", retryable=True)
+
+    def _sleep_for_retry(self, backoff: float, deadline: float) -> None:
+        remaining = deadline - self._monotonic()
+        if remaining <= 0:
+            raise ProviderError("provider_unavailable", retryable=True)
+        self._sleeper(min(backoff, remaining))
 
     @staticmethod
     def _message_payload(message: dict[str, Any]) -> dict[str, Any]:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import threading
 from uuid import uuid4
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 from app.agent.loop import AgentContext, AgentLimits, AgentRunner
 from app.agent.messages import AssistantMessage, ToolCall
@@ -122,3 +124,88 @@ def test_trace_and_model_result_are_redacted_without_output_model():
     assert secret not in rendered
     assert secret not in provider.requests[1].messages[-1].content
     assert result.traces[0].arguments == {"fields": ["value"]}
+
+
+class StrictTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    public_value: str
+
+
+def test_mutating_concurrent_identical_calls_execute_once_and_followers_receive_result():
+    entered = threading.Event()
+    release = threading.Event()
+    barrier = threading.Barrier(2)
+    calls = 0
+    calls_lock = threading.Lock()
+    registry = ToolRegistry(InMemoryIdempotencyStore(ttl_seconds=60, wait_timeout_seconds=1))
+
+    def handler(args: EchoArgs, _: AgentContext) -> dict[str, str]:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        entered.set()
+        assert release.wait(1)
+        return {"value": args.value}
+
+    registry.register(ToolDefinition("write", "Write", EchoArgs, handler, mutating=True, permission="write"))
+    context = AgentContext(actor_id="actor", permissions=frozenset({"write"}), confirmed=True, idempotency_key="key")
+    outcomes: list[tuple[object | None, str | None]] = []
+
+    def invoke() -> None:
+        barrier.wait()
+        outcomes.append(registry.execute("write", '{"value":"one"}', context))
+
+    threads = [threading.Thread(target=invoke) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    assert entered.wait(1)
+    release.set()
+    for thread in threads:
+        thread.join(1)
+        assert not thread.is_alive()
+    assert calls == 1
+    assert outcomes == [({"value": "one"}, None), ({"value": "one"}, None)]
+
+
+def test_mutating_failure_releases_claim_for_retry():
+    calls = 0
+    registry = ToolRegistry(InMemoryIdempotencyStore(ttl_seconds=60))
+
+    def handler(_: EchoArgs, __: AgentContext) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary failure")
+        return {"value": "retried"}
+
+    registry.register(ToolDefinition("write", "Write", EchoArgs, handler, mutating=True, permission="write"))
+    context = AgentContext(actor_id="actor", permissions=frozenset({"write"}), confirmed=True, idempotency_key="key")
+    assert registry.execute("write", '{"value":"one"}', context) == (None, "internal_error")
+    assert registry.execute("write", '{"value":"one"}', context) == ({"value": "retried"}, None)
+    assert calls == 2
+
+
+def test_trace_serializer_requires_strict_model_and_redacts_malicious_or_oversized_output():
+    secret = "private-trace-secret"
+    registry = ToolRegistry()
+    malicious = ToolDefinition(
+        "unsafe", "Unsafe", EchoArgs, lambda args, _: {"secret": args.value},
+        trace_serializer=lambda _args, result: {"public_value": "ok", "secret": result["secret"]},
+        trace_output_model=StrictTrace,
+    )
+    oversized = ToolDefinition(
+        "large", "Large", EchoArgs, lambda _args, _: None,
+        trace_serializer=lambda *_: {"public_value": "x" * 20_000}, trace_output_model=StrictTrace,
+    )
+    model = EchoArgs(value=secret)
+    assert registry.trace_result(malicious, model, {"secret": secret}) == {"status": "completed"}
+    assert registry.trace_result(oversized, model, None) == {"status": "completed"}
+
+
+def test_trace_serializer_validated_strict_output_is_exposed():
+    definition = ToolDefinition(
+        "safe", "Safe", EchoArgs, lambda _args, _: {"value": "internal"},
+        trace_serializer=lambda _args, _result: {"public_value": "safe"}, trace_output_model=StrictTrace,
+    )
+    assert ToolRegistry.trace_result(definition, EchoArgs(value="secret"), {"value": "secret"}) == {"public_value": "safe"}

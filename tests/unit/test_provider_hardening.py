@@ -79,3 +79,43 @@ def test_openai_uses_remaining_deadline_as_timeout():
 def test_openai_cost_uses_integer_micro_units():
     provider = OpenAICompatibleProvider("https://provider.invalid", "secret", "model", input_cost_micro_units_per_token=2, output_cost_micro_units_per_token=3, client=httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"choices": [{"message": {"content": "done"}}], "usage": {"prompt_tokens": 4, "completion_tokens": 5}}))))
     assert provider.complete(CompletionRequest(messages=[ModelMessage(role="user", content="go")])).cost_micro_units == 23
+
+
+def test_openai_stops_after_timeout_consumes_total_request_budget():
+    calls = 0
+    clock = iter([0.0, 0.0, 1.0])
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("timed out")
+
+    provider = OpenAICompatibleProvider(
+        "https://provider.invalid", "secret", "model", retries=2,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        monotonic=lambda: next(clock), sleeper=lambda _: None,
+    )
+    with pytest.raises(ProviderError, match="provider_unavailable"):
+        provider.complete(CompletionRequest(messages=[ModelMessage(role="user", content="go")], timeout_seconds=1))
+    assert calls == 1
+
+
+def test_openai_retries_when_total_request_budget_remains():
+    observed_timeouts: list[float] = []
+    sleeps: list[float] = []
+    clock_values = iter([0.0, 0.0, 0.0, 0.1, 0.1])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_timeouts.append(request.extensions["timeout"]["connect"])
+        if len(observed_timeouts) == 1:
+            raise httpx.ReadTimeout("timed out")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "done"}}]})
+
+    provider = OpenAICompatibleProvider(
+        "https://provider.invalid", "secret", "model", retries=1,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        monotonic=lambda: next(clock_values), sleeper=sleeps.append,
+    )
+    assert provider.complete(CompletionRequest(messages=[ModelMessage(role="user", content="go")], timeout_seconds=1)).content == "done"
+    assert observed_timeouts == [1.0, 0.9]
+    assert sleeps == [0.05]
