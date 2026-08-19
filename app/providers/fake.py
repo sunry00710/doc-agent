@@ -26,7 +26,10 @@ class FakeProvider(ModelProvider):
             raise response
         if isinstance(response, CompletionResult):
             return response
-        return CompletionResult(
-            content=response.content,
-            tool_calls=[call.to_provider() for call in response.tool_calls],
-        )
+        try:
+            return CompletionResult(
+                content=response.content,
+                tool_calls=[call.to_provider() for call in response.tool_calls],
+            )
+        except ValueError as exc:
+            raise ProviderError("provider_invalid_response") from exc

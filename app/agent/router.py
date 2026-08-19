@@ -45,7 +45,7 @@ def get_runner(request: Request) -> AgentRunner:
     return AgentRunner(provider, registry)
 
 
-def authorize_context(data: ChatRequest, user: User, session: Session) -> AgentContext:
+def authorize_context(data: ChatRequest, user: User, session: Session, request_id: str | None) -> AgentContext:
     if data.project_id is not None:
         require_project_permission(data.project_id, ProjectAction.view, user, session)
     if data.document_version_id is not None:
@@ -69,6 +69,8 @@ def authorize_context(data: ChatRequest, user: User, session: Session) -> AgentC
         permissions=permissions,
         confirmed=data.confirmed,
         idempotency_key=data.idempotency_key,
+        actor_id=str(user.id),
+        request_id=request_id,
     )
 
 
@@ -77,9 +79,12 @@ def chat(
     data: ChatRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db)],
+    request: Request,
     runner: Annotated[AgentRunner, Depends(get_runner)],
 ) -> ChatResponse:
-    result = runner.run(current_user, data.text, authorize_context(data, current_user, session))
+    result = runner.run(
+        current_user, data.text, authorize_context(data, current_user, session, str(request.state.request_id))
+    )
     if result.stop_reason == "provider_unavailable":
         raise AppError("provider_unavailable", "Model provider unavailable", 503, retryable=True)
     if result.stop_reason == "provider_invalid_response":

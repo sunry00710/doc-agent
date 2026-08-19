@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+
+Authorizer = Callable[[Any, BaseModel], bool]
 
 
 @dataclass(frozen=True)
@@ -16,43 +21,108 @@ class ToolDefinition:
     handler: Callable[[BaseModel, Any], object]
     mutating: bool = False
     permission: str | None = None
+    authorizer: Authorizer | None = None
+    output_model: type[BaseModel] | None = None
+    trace_serializer: Callable[[BaseModel, object], object] | None = None
 
     def schema(self) -> dict[str, object]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": self.input_model.model_json_schema(),
-        }
+        return {"name": self.name, "description": self.description, "parameters": self.input_model.model_json_schema()}
+
+
+class InMemoryIdempotencyStore:
+    """Process-local, bounded cache of successful mutating tool calls only."""
+
+    def __init__(self, *, max_entries: int = 1_024, ttl_seconds: float = 300) -> None:
+        self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
+        self._entries: OrderedDict[tuple[str, str, str], tuple[float, object]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple[str, str, str]) -> object | None:
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None or entry[0] <= time.monotonic():
+                self._entries.pop(key, None)
+                return None
+            self._entries.move_to_end(key)
+            return entry[1]
+
+    def put(self, key: tuple[str, str, str], value: object) -> None:
+        with self._lock:
+            self._entries[key] = (time.monotonic() + self.ttl_seconds, value)
+            self._entries.move_to_end(key)
+            while len(self._entries) > self.max_entries:
+                self._entries.popitem(last=False)
 
 
 class ToolRegistry:
-    def __init__(self) -> None:
+    def __init__(self, idempotency_store: InMemoryIdempotencyStore | None = None) -> None:
         self._tools: dict[str, ToolDefinition] = {}
+        self.idempotency_store = idempotency_store or InMemoryIdempotencyStore()
 
     def register(self, definition: ToolDefinition) -> None:
         if definition.name in self._tools:
             raise ValueError(f"Tool already registered: {definition.name}")
+        if definition.mutating and not (definition.permission or definition.authorizer):
+            raise ValueError("mutating tools require an explicit permission or authorizer")
         self._tools[definition.name] = definition
 
     def definitions(self) -> list[ToolDefinition]:
         return list(self._tools.values())
 
-    def execute(self, name: str, arguments: str, context: Any) -> tuple[object | None, str | None]:
+    def execute_detailed(self, name: str, arguments: str, context: Any) -> tuple[object | None, str | None, ToolDefinition | None, BaseModel | None]:
         definition = self._tools.get(name)
         if definition is None:
-            return None, "validation_error"
-        if definition.permission and definition.permission not in context.permissions:
-            return None, "permission_denied"
-        if definition.mutating and (not context.confirmed or not context.idempotency_key):
-            return None, "permission_denied"
+            return None, "validation_error", None, None
         try:
             parsed = json.loads(arguments)
             if not isinstance(parsed, dict):
-                return None, "validation_error"
+                return None, "validation_error", definition, None
             model = definition.input_model.model_validate(parsed)
         except (json.JSONDecodeError, ValidationError, TypeError, ValueError):
-            return None, "validation_error"
+            return None, "validation_error", definition, None
+        if definition.permission and definition.permission not in context.permissions:
+            return None, "permission_denied", definition, model
+        if definition.authorizer and not definition.authorizer(context, model):
+            return None, "permission_denied", definition, model
+        if definition.mutating:
+            if not context.confirmed or not context.idempotency_key or not context.actor_id:
+                return None, "permission_denied", definition, model
+            key = (context.actor_id, definition.name, context.idempotency_key)
+            cached = self.idempotency_store.get(key)
+            if cached is not None:
+                return cached, None, definition, model
         try:
-            return definition.handler(model, context), None
-        except Exception:  # noqa: BLE001 - tool failures are intentionally converted to safe errors.
-            return None, "internal_error"
+            result = definition.handler(model, context)
+        except Exception:  # noqa: BLE001
+            return None, "internal_error", definition, model
+        if definition.mutating:
+            self.idempotency_store.put(key, result)
+        return result, None, definition, model
+
+    def execute(self, name: str, arguments: str, context: Any) -> tuple[object | None, str | None]:
+        result, error_code, _definition, _model = self.execute_detailed(name, arguments, context)
+        return result, error_code
+
+    @staticmethod
+    def safe_output(definition: ToolDefinition | None, model: BaseModel | None, result: object) -> object:
+        if definition is None or model is None:
+            return {"status": "completed"}
+        if definition.output_model is not None:
+            try:
+                return definition.output_model.model_validate(result).model_dump(mode="json")
+            except ValidationError:
+                return {"error": "internal_error"}
+        return {"status": "completed"}
+
+    @staticmethod
+    def trace_arguments(definition: ToolDefinition | None, model: BaseModel | None) -> object:
+        if definition is None or model is None:
+            return {"fields": []}
+        return {"fields": sorted(model.model_fields_set)}
+
+    @staticmethod
+    def trace_result(definition: ToolDefinition | None, model: BaseModel | None, result: object) -> object:
+        if definition and definition.trace_serializer and model:
+            return definition.trace_serializer(model, result)
+        return ToolRegistry.safe_output(definition, model, result)

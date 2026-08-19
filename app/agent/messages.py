@@ -23,4 +23,6 @@ class AssistantMessage(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list, max_length=32)
 
     def to_model_message(self) -> ModelMessage:
-        return ModelMessage(role="assistant", content=self.content)
+        return ModelMessage(
+            role="assistant", content=self.content, tool_calls=[call.to_provider() for call in self.tool_calls]
+        )

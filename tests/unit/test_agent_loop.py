@@ -45,7 +45,7 @@ def test_runner_executes_tool_and_returns_follow_up_answer():
 
     assert result.text == "Tool completed"
     assert result.traces[0].status == "succeeded"
-    assert result.traces[0].result == {"echo": "hello"}
+    assert result.traces[0].result == {"status": "completed"}
     assert provider.requests[1].messages[-1].role == "tool"
 
 
@@ -111,4 +111,4 @@ def test_runner_enforces_max_rounds_and_initializes_trace_arguments():
 
     assert result.stop_reason == "max_rounds"
     assert len(result.traces) == 2
-    assert result.traces[0].arguments == '{"value":"x"}'
+    assert result.traces[0].arguments == {"fields": ["value"]}
