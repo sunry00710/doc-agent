@@ -8,13 +8,15 @@ from app.db.base import Base
 from app.documents import models as document_models  # noqa: F401
 from app.identity import models  # noqa: F401
 from app.jobs import models as job_models  # noqa: F401
+from app.knowledge import models as knowledge_models  # noqa: F401
 from app.projects import models as project_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", Settings().database_url.replace("%", "%%"))
+configured_url = config.get_main_option("sqlalchemy.url")
+config.set_main_option("sqlalchemy.url", configured_url or Settings().database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 

@@ -17,6 +17,7 @@ from app.db.session import create_database_engine, create_session_factory
 from app.documents.router import router as documents_router
 from app.identity.router import router as auth_router
 from app.jobs.router import router as jobs_router
+from app.knowledge.router import router as knowledge_router
 from app.projects.router import router as projects_router
 
 logger = logging.getLogger(__name__)
@@ -125,4 +126,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router)
     app.include_router(agent_router)
     app.include_router(jobs_router)
+    app.include_router(knowledge_router)
     return app
