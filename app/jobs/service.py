@@ -21,6 +21,17 @@ def utc_now() -> datetime:
 
 def enqueue(session: Session, job_type: str, payload: BaseModel, owner_id: UUID | str, idempotency_key: str) -> Job:
     """Create or return a job scoped by (owner_id, job_type, idempotency_key)."""
+    if not isinstance(payload, BaseModel):
+        raise TypeError("job payload must be a Pydantic BaseModel")
+    if (
+        "_job_context" in type(payload).__private_attributes__
+        or any(
+            field_name == "_job_context" or field.alias == "_job_context"
+            for field_name, field in type(payload).model_fields.items()
+        )
+    ):
+        raise ValueError("_job_context is reserved for worker metadata")
+
     owner = str(owner_id)
     existing = _idempotent_job(session, owner, job_type, idempotency_key)
     if existing is not None:

@@ -118,7 +118,8 @@ def test_worker_completes_job_and_persists_structured_result(db_session, owner, 
     job = enqueue(db_session, "result", Payload(value="done"), owner.id, "success")
     db_session.commit()
 
-    assert Worker(db_session, registry, max_attempts=3).run_once() is True
+    factory = sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    assert Worker(factory, registry, max_attempts=3).run_once() is True
     db_session.refresh(job)
     assert job.status is JobStatus.succeeded
     assert job.attempts == 1
@@ -130,7 +131,7 @@ def test_retryable_failure_schedules_bounded_retry(db_session, owner, registry):
     job = enqueue(db_session, "retry", Payload(value="retry"), owner.id, "retryable")
     db_session.commit()
 
-    Worker(db_session, registry, max_attempts=2, retry_delay_seconds=10).run_once()
+    Worker(sessionmaker(bind=db_session.bind, expire_on_commit=False), registry, max_attempts=2, retry_delay_seconds=10).run_once()
     db_session.refresh(job)
     assert job.status is JobStatus.retrying
     assert job.attempts == 1
@@ -139,7 +140,7 @@ def test_retryable_failure_schedules_bounded_retry(db_session, owner, registry):
 
     job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
     db_session.commit()
-    Worker(db_session, registry, max_attempts=2).run_once()
+    Worker(sessionmaker(bind=db_session.bind, expire_on_commit=False), registry, max_attempts=2).run_once()
     db_session.refresh(job)
     assert job.status is JobStatus.failed
     assert job.attempts == 2
@@ -149,7 +150,7 @@ def test_non_retryable_failure_is_safe_and_terminal(db_session, owner, registry)
     job = enqueue(db_session, "permanent", Payload(value="private"), owner.id, "permanent")
     db_session.commit()
 
-    Worker(db_session, registry).run_once()
+    Worker(sessionmaker(bind=db_session.bind, expire_on_commit=False), registry).run_once()
     db_session.refresh(job)
     assert job.status is JobStatus.failed
     assert job.error == {"code": "job_failed", "message": "Job execution failed"}
