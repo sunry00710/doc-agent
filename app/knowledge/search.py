@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -42,7 +43,7 @@ class SearchBackend(ABC):
     def search(
         self,
         query: str,
-        authorized_chunk_keys: frozenset[tuple[str, str]],
+        authorized_generation_ids: frozenset[str],
         limit: int,
     ) -> list[RankedChunk]: ...
 
@@ -55,33 +56,30 @@ class SQLiteFtsBackend(SearchBackend):
     def search(
         self,
         query: str,
-        authorized_chunk_keys: frozenset[tuple[str, str]],
+        authorized_generation_ids: frozenset[str],
         limit: int,
     ) -> list[RankedChunk]:
+        if self.session.bind is None or self.session.bind.dialect.name != "sqlite":
+            raise AppError("index_failure", "Knowledge index is temporarily unavailable", 500)
         fts_query = _fts_query(query)
         if not fts_query:
             raise AppError("validation_error", "Invalid knowledge search query", 422)
-        if not authorized_chunk_keys:
+        if not authorized_generation_ids:
             return []
-        parameters = {"query": fts_query, "limit": limit}
-        predicates: list[str] = []
-        for number, (chunk_id, generation_id) in enumerate(sorted(authorized_chunk_keys)):
-            chunk_name = f"chunk_id_{number}"
-            generation_name = f"generation_id_{number}"
-            predicates.append(f"(f.chunk_id = :{chunk_name} AND f.generation_id = :{generation_name})")
-            parameters[chunk_name] = chunk_id
-            parameters[generation_name] = generation_id
         statement = text(
             "SELECT f.chunk_id, f.generation_id, bm25(knowledge_chunks_fts) AS score "
             "FROM knowledge_chunks_fts AS f "
-            "WHERE knowledge_chunks_fts MATCH :query AND ("
-            + " OR ".join(predicates)
-            + ") ORDER BY score, f.chunk_id LIMIT :limit"
+            "WHERE knowledge_chunks_fts MATCH :query "
+            "AND f.generation_id IN (SELECT value FROM json_each(:generation_ids)) "
+            "ORDER BY score, f.chunk_id LIMIT :limit"
         )
         try:
-            rows = self.session.execute(statement, parameters).all()
+            rows = self.session.execute(
+                statement,
+                {"query": fts_query, "generation_ids": json.dumps(sorted(authorized_generation_ids)), "limit": limit},
+            ).all()
         except OperationalError as exc:
-            raise AppError("validation_error", "Invalid knowledge search query", 422) from exc
+            raise AppError("index_failure", "Knowledge index is temporarily unavailable", 500) from exc
         return [RankedChunk(chunk_id=row.chunk_id, generation_id=row.generation_id, score=float(row.score)) for row in rows]
 
 
@@ -102,7 +100,7 @@ def search(session: Session, storage: FileStorage, query: SearchQuery, actor: Us
     chunk_by_key = {(chunk.id, chunk.generation_id): chunk for chunk in chunks}
     ranked = (backend or SQLiteFtsBackend(session)).search(
         query.query,
-        frozenset(chunk_by_key),
+        frozenset(active_generation_ids),
         query.limit,
     )
     hits: list[SearchHit] = []

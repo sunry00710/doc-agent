@@ -3,6 +3,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class IngestionJobPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    payload_version: int = 1
+    version_id: UUID
+    space_id: UUID
+
+
 class SearchQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     query: str = Field(min_length=1, max_length=500)

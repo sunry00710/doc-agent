@@ -16,7 +16,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 configured_url = config.get_main_option("sqlalchemy.url")
-config.set_main_option("sqlalchemy.url", configured_url or Settings().database_url.replace("%", "%%"))
+default_url = "sqlite:///./doc_agent.db"
+if not configured_url or configured_url == default_url:
+    configured_url = Settings().database_url
+config.set_main_option("sqlalchemy.url", configured_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 

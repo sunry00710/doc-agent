@@ -190,3 +190,21 @@ def test_fts_filters_unauthorized_chunks_before_ranking_and_limit(tmp_path: Path
         assert len(hits) == 1
         assert hits[0].version_id == UUID(allowed_version.id)
     engine.dispose()
+
+
+def test_fts_handles_more_than_sqlite_parameter_limit_without_ranking_unauthorized(tmp_path: Path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'parameter-limit.db'}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE VIRTUAL TABLE knowledge_chunks_fts USING fts5(chunk_id UNINDEXED, generation_id UNINDEXED, text)"))
+        rows = [{"chunk_id": f"allowed-{number}", "generation_id": f"generation-{number}", "text": "needle"} for number in range(1001)]
+        rows.append({"chunk_id": "unauthorized", "generation_id": "private", "text": "needle needle needle needle"})
+        connection.execute(text("INSERT INTO knowledge_chunks_fts (chunk_id, generation_id, text) VALUES (:chunk_id, :generation_id, :text)"), rows)
+    from app.knowledge.search import SQLiteFtsBackend
+
+    with Session(engine) as session:
+        ranked = SQLiteFtsBackend(session).search("needle", frozenset(f"generation-{number}" for number in range(1001)), 3)
+
+    assert len(ranked) == 3
+    assert all(result.generation_id != "private" for result in ranked)
+    engine.dispose()

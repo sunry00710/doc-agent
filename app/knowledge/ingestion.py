@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError
 from app.documents.models import DocumentVersion
 from app.documents.storage import FileStorage
+from app.jobs.runner import JobHandler
+from app.jobs.service import RetryableJobError
 from app.knowledge.chunking import chunk_markdown
 from app.knowledge.models import (
     GenerationState,
@@ -21,6 +23,7 @@ from app.knowledge.models import (
     KnowledgeSpace,
     KnowledgeState,
 )
+from app.knowledge.schemas import IngestionJobPayload
 
 _SQLITE_RETRY_ATTEMPTS = 5
 _SQLITE_RETRY_DELAY_SECONDS = 0.01
@@ -74,6 +77,9 @@ def _read_verified_source(storage: FileStorage, version: DocumentVersion) -> str
 
 
 def ingest_version(session: Session, storage: FileStorage, version_id: UUID, space_id: UUID, *, rebuild: bool = False) -> KnowledgeDocument:
+    if session.bind is None or session.bind.dialect.name != "sqlite":
+        raise _index_failure()
+
     def index() -> KnowledgeDocument:
         version = session.get(DocumentVersion, str(version_id))
         space = session.get(KnowledgeSpace, str(space_id))
@@ -120,3 +126,36 @@ def ingest_version(session: Session, storage: FileStorage, version_id: UUID, spa
         return _retry_sqlite_busy(index)
     except OperationalError as exc:
         raise _index_failure(exc) from exc
+
+
+class KnowledgeIngestionHandler(JobHandler):
+    def __init__(self, session_factory: Callable[[], Session], storage: FileStorage | None) -> None:
+        self.session_factory = session_factory
+        self.storage = storage
+
+    def run(self, payload: dict) -> dict:
+        payload = payload.copy()
+        context = payload.pop("_job_context", None)
+        if set(context or ()) != {"job_id", "idempotency_key", "attempt", "claim_token"}:
+            raise ValueError("_job_context is missing or invalid")
+        if not all(isinstance(context[field], str) for field in ("job_id", "idempotency_key", "claim_token")) or not isinstance(context["attempt"], int):
+            raise ValueError("_job_context is missing or invalid")
+        job_payload = IngestionJobPayload.model_validate(payload)
+        if self.storage is None:
+            raise RetryableJobError("knowledge storage is unavailable")
+        try:
+            with self.session_factory() as session:
+                document = ingest_version(session, self.storage, job_payload.version_id, job_payload.space_id)
+                session.commit()
+                return {
+                    "version_id": str(job_payload.version_id),
+                    "space_id": str(job_payload.space_id),
+                    "generation_id": document.active_generation_id,
+                    "job_id": context["job_id"],
+                    "idempotency_key": context["idempotency_key"],
+                    "attempt": context["attempt"],
+                }
+        except AppError as exc:
+            if exc.code == "index_failure":
+                raise RetryableJobError("knowledge indexing is unavailable") from exc
+            raise

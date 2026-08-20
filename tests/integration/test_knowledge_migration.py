@@ -37,6 +37,20 @@ def test_0005_upgrade_and_downgrade_schema(tmp_path: Path):
     engine.dispose()
 
 
+def test_alembic_cli_uses_settings_url_unless_config_url_is_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    settings_database = tmp_path / "settings.db"
+    explicit_database = tmp_path / "explicit.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{settings_database}")
+
+    command.upgrade(Config(str(ROOT / "alembic.ini")), "0001_identity")
+    assert settings_database.exists()
+
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{explicit_database}")
+    command.upgrade(config, "0001_identity")
+    assert explicit_database.exists()
+
+
 def test_active_generation_must_belong_to_its_document(tmp_path: Path):
     database = tmp_path / "constraint.db"
     config = _config(database)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Lock, Thread
+from uuid import UUID
 
 import pytest
 from pydantic import BaseModel
@@ -16,6 +17,9 @@ from app.identity.models import User
 from app.jobs.models import Job, JobStatus
 from app.jobs.runner import JobHandler, JobRegistry, Worker
 from app.jobs.service import claim_next_job, enqueue, finish_job, recover_stale_jobs
+from app.knowledge.ingestion import KnowledgeIngestionHandler
+from app.knowledge.schemas import IngestionJobPayload
+from app.projects import models as project_models  # noqa: F401
 from run_worker import build_registry, create_worker
 
 
@@ -166,12 +170,20 @@ def test_run_forever_recovers_expected_lock_error(monkeypatch, tmp_path: Path):
     engine.dispose()
 
 
-def test_worker_entrypoint_is_inert_and_requires_handlers(tmp_path: Path):
-    assert build_registry().get("missing") is None
-    engine, _factory = make_factory(tmp_path, "entrypoint.db")
-    with pytest.raises(RuntimeError, match="no registered handlers"):
-        create_worker(engine)
-    registry = JobRegistry()
-    registry.register("context", ContextHandler([]))
-    assert create_worker(engine, registry).registry is registry
+def test_worker_entrypoint_registers_knowledge_ingestion_handler(tmp_path: Path):
+    engine, factory = make_factory(tmp_path, "entrypoint.db")
+    registry = build_registry(factory, None)
+    assert isinstance(registry.get("knowledge.ingest"), KnowledgeIngestionHandler)
+    assert isinstance(create_worker(engine).registry.get("knowledge.ingest"), KnowledgeIngestionHandler)
+    engine.dispose()
+
+
+def test_ingestion_handler_rejects_spoofed_or_missing_worker_context(tmp_path: Path):
+    engine, factory = make_factory(tmp_path, "handler-context.db")
+    handler = KnowledgeIngestionHandler(factory, None)
+    payload = IngestionJobPayload(version_id=UUID("00000000-0000-0000-0000-000000000001"), space_id=UUID("00000000-0000-0000-0000-000000000002"))
+    with pytest.raises(ValueError, match="_job_context"):
+        handler.run(payload.model_dump())
+    with pytest.raises(ValueError, match="_job_context"):
+        handler.run({**payload.model_dump(), "_job_context": {"job_id": "x", "idempotency_key": "key", "attempt": 1}})
     engine.dispose()
