@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Lock, Thread
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -17,7 +18,7 @@ from app.identity.models import User
 from app.jobs.models import Job, JobStatus
 from app.jobs.runner import JobHandler, JobRegistry, Worker
 from app.jobs.service import claim_next_job, enqueue, finish_job, recover_stale_jobs
-from app.knowledge.ingestion import KnowledgeIngestionHandler
+from app.knowledge.ingestion import JobClaimLostError, KnowledgeIngestionHandler
 from app.knowledge.schemas import IngestionJobPayload
 from app.projects import models as project_models  # noqa: F401
 from run_worker import build_registry, create_worker
@@ -186,4 +187,129 @@ def test_ingestion_handler_rejects_spoofed_or_missing_worker_context(tmp_path: P
         handler.run(payload.model_dump())
     with pytest.raises(ValueError, match="_job_context"):
         handler.run({**payload.model_dump(), "_job_context": {"job_id": "x", "idempotency_key": "key", "attempt": 1}})
+    with pytest.raises(ValueError, match="_job_context"):
+        handler.run({**payload.model_dump(), "_job_context": {"job_id": "x", "idempotency_key": "key", "attempt": "1", "claim_token": "token"}})
+    with pytest.raises(ValueError, match="_job_context"):
+        handler.run({**payload.model_dump(), "_job_context": {"job_id": "x", "idempotency_key": "key", "attempt": 1, "claim_token": "token", "extra": "field"}})
+    engine.dispose()
+
+
+def test_worker_delivers_enqueue_json_uuid_payload_to_ingestion_handler(tmp_path: Path, monkeypatch):
+    engine, factory = make_factory(tmp_path, "ingestion-json-payload.db")
+    captured: dict[str, UUID] = {}
+    handler = KnowledgeIngestionHandler(factory, object())
+
+    def ingest(session, storage, version_id: UUID, space_id: UUID):
+        captured.update(version_id=version_id, space_id=space_id)
+        return SimpleNamespace(active_generation_id="generation-id")
+
+    monkeypatch.setattr("app.knowledge.ingestion.ingest_version", ingest)
+    registry = JobRegistry()
+    registry.register("knowledge.ingest", handler)
+    payload = IngestionJobPayload(version_id=UUID("00000000-0000-0000-0000-000000000001"), space_id=UUID("00000000-0000-0000-0000-000000000002"))
+    with factory() as session:
+        owner = User(username="ingestion-json-owner", password_hash=hash_password("correct"))
+        session.add(owner)
+        session.commit()
+        job = enqueue(session, "knowledge.ingest", payload, owner.id, "ingestion-json-key")
+        session.commit()
+        assert isinstance(job.payload["version_id"], str)
+        assert isinstance(job.payload["space_id"], str)
+
+    assert Worker(factory, registry).run_once() is True
+    assert captured == {"version_id": payload.version_id, "space_id": payload.space_id}
+    with factory() as session:
+        persisted = session.get(Job, job.id)
+        assert persisted is not None and persisted.status is JobStatus.succeeded
+        assert persisted.result == {
+            "version_id": str(payload.version_id),
+            "space_id": str(payload.space_id),
+            "generation_id": "generation-id",
+            "job_id": job.id,
+            "idempotency_key": "ingestion-json-key",
+            "attempt": 1,
+        }
+        assert "claim_token" not in persisted.result
+    engine.dispose()
+
+
+def test_ingestion_handler_fences_reclaimed_claim_before_indexing(tmp_path: Path, monkeypatch):
+    engine, factory = make_factory(tmp_path, "ingestion-claim-fencing.db")
+    handler = KnowledgeIngestionHandler(factory, object())
+    calls: list[str] = []
+
+    def ingest(session, storage, version_id: UUID, space_id: UUID):
+        calls.append(str(version_id))
+        return SimpleNamespace(active_generation_id="generation-id")
+
+    monkeypatch.setattr("app.knowledge.ingestion.ingest_version", ingest)
+    payload = IngestionJobPayload(version_id=UUID("00000000-0000-0000-0000-000000000001"), space_id=UUID("00000000-0000-0000-0000-000000000002"))
+    with factory() as session:
+        owner = User(username="ingestion-fencing-owner", password_hash=hash_password("correct"))
+        session.add(owner)
+        session.commit()
+        job = enqueue(session, "knowledge.ingest", payload, owner.id, "ingestion-fencing-key")
+        session.commit()
+        old_claim = claim_next_job(session, "old-worker")
+        assert old_claim is not None and old_claim.claim_token is not None
+        old_token = old_claim.claim_token
+        old_claim.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
+        session.commit()
+        assert recover_stale_jobs(session, datetime.now(UTC), stale_after_seconds=60, max_attempts=3) == 1
+        session.commit()
+        current_claim = claim_next_job(session, "current-worker")
+        assert current_claim is not None and current_claim.claim_token is not None
+        current_token = current_claim.claim_token
+        session.commit()
+
+    old_payload = {**payload.model_dump(mode="json"), "_job_context": {"job_id": job.id, "idempotency_key": job.idempotency_key, "attempt": 1, "claim_token": old_token}}
+    with pytest.raises(JobClaimLostError):
+        handler.run(old_payload)
+    assert calls == []
+
+    result = handler.run({**old_payload, "_job_context": {**old_payload["_job_context"], "attempt": 2, "claim_token": current_token}})
+    assert calls == [str(payload.version_id)]
+    assert result == {
+        "version_id": str(payload.version_id),
+        "space_id": str(payload.space_id),
+        "generation_id": "generation-id",
+        "job_id": job.id,
+        "idempotency_key": job.idempotency_key,
+        "attempt": 2,
+    }
+    engine.dispose()
+
+
+def test_worker_rejects_unsupported_ingestion_payload_version_without_ingesting(tmp_path: Path, monkeypatch):
+    engine, factory = make_factory(tmp_path, "unsupported-ingestion-version.db")
+    called = False
+    handler = KnowledgeIngestionHandler(factory, object())
+
+    def ingest(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("unsupported payload version must not ingest")
+
+    monkeypatch.setattr("app.knowledge.ingestion.ingest_version", ingest)
+    registry = JobRegistry()
+    registry.register("knowledge.ingest", handler)
+    with factory() as session:
+        owner = User(username="unsupported-ingestion-owner", password_hash=hash_password("correct"))
+        session.add(owner)
+        session.commit()
+        job = enqueue(
+            session,
+            "knowledge.ingest",
+            IngestionJobPayload(version_id=UUID("00000000-0000-0000-0000-000000000001"), space_id=UUID("00000000-0000-0000-0000-000000000002")),
+            owner.id,
+            "unsupported-ingestion-key",
+        )
+        job.payload = {**job.payload, "payload_version": 2}
+        session.commit()
+
+    assert Worker(factory, registry).run_once() is True
+    assert called is False
+    with factory() as session:
+        persisted = session.get(Job, job.id)
+        assert persisted is not None and persisted.status is JobStatus.failed
     engine.dispose()

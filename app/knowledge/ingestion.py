@@ -5,13 +5,14 @@ import time
 from collections.abc import Callable
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.documents.models import DocumentVersion
 from app.documents.storage import FileStorage
+from app.jobs.models import Job, JobStatus
 from app.jobs.runner import JobHandler
 from app.jobs.service import RetryableJobError
 from app.knowledge.chunking import chunk_markdown
@@ -128,6 +129,10 @@ def ingest_version(session: Session, storage: FileStorage, version_id: UUID, spa
         raise _index_failure(exc) from exc
 
 
+class JobClaimLostError(Exception):
+    """The worker no longer owns the job claim needed for ingestion."""
+
+
 class KnowledgeIngestionHandler(JobHandler):
     def __init__(self, session_factory: Callable[[], Session], storage: FileStorage | None) -> None:
         self.session_factory = session_factory
@@ -145,6 +150,18 @@ class KnowledgeIngestionHandler(JobHandler):
             raise RetryableJobError("knowledge storage is unavailable")
         try:
             with self.session_factory() as session:
+                fence = session.execute(
+                    update(Job)
+                    .where(
+                        Job.id == context["job_id"],
+                        Job.claim_token == context["claim_token"],
+                        Job.status == JobStatus.running,
+                    )
+                    .values(updated_at=Job.updated_at)
+                )
+                if fence.rowcount != 1:
+                    session.rollback()
+                    raise JobClaimLostError("knowledge ingestion claim is no longer active")
                 document = ingest_version(session, self.storage, job_payload.version_id, job_payload.space_id)
                 session.commit()
                 return {
