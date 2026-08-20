@@ -7,6 +7,7 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.documents import models as document_models  # noqa: F401
 from app.identity import models  # noqa: F401
+from app.jobs import models as job_models  # noqa: F401
 from app.projects import models as project_models  # noqa: F401
 
 config = context.config
