@@ -1,11 +1,10 @@
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
-
-from alembic import command
 
 ROOT = Path(__file__).parents[2]
 
@@ -34,6 +33,28 @@ def test_0005_upgrade_and_downgrade_schema(tmp_path: Path):
     assert engine.connect().execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0004_jobs"
     assert not {"knowledge_spaces", "knowledge_documents", "knowledge_generations", "knowledge_chunks"} & set(inspector.get_table_names())
     assert engine.connect().execute(text("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_chunks_fts' ")).scalar_one() == 0
+    engine.dispose()
+
+
+def test_0006_dense_embedding_upgrade_and_downgrade_schema(tmp_path: Path):
+    database = tmp_path / "dense-migration.db"
+    config = _config(database)
+    command.upgrade(config, "0006_dense_embeddings")
+    engine = create_engine(f"sqlite:///{database}")
+    inspector = inspect(engine)
+    assert engine.connect().execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0006_dense_embeddings"
+    assert "knowledge_embeddings" in inspector.get_table_names()
+    assert {column["name"] for column in inspector.get_columns("knowledge_embeddings")} == {
+        "chunk_id",
+        "generation_id",
+        "dimension",
+        "vector",
+    }
+    assert inspector.get_pk_constraint("knowledge_embeddings")["constrained_columns"] == ["chunk_id", "generation_id"]
+    assert any(foreign_key["referred_table"] == "knowledge_chunks" for foreign_key in inspector.get_foreign_keys("knowledge_embeddings"))
+
+    command.downgrade(config, "0005_knowledge")
+    assert "knowledge_embeddings" not in inspect(engine).get_table_names()
     engine.dispose()
 
 

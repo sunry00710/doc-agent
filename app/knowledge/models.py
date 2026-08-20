@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     PrimaryKeyConstraint,
     String,
     Text,
@@ -102,3 +103,20 @@ class KnowledgeChunk(Base):
     start_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class KnowledgeEmbedding(Base):
+    __tablename__ = "knowledge_embeddings"
+    __table_args__ = (
+        PrimaryKeyConstraint("chunk_id", "generation_id", name="knowledge_embedding_pk"),
+        CheckConstraint("dimension > 0", name="positive_embedding_dimension"),
+        ForeignKeyConstraint(
+            ["chunk_id", "generation_id"],
+            ["knowledge_chunks.id", "knowledge_chunks.generation_id"],
+            ondelete="CASCADE",
+        ),
+    )
+    chunk_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    generation_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    dimension: Mapped[int] = mapped_column(Integer, nullable=False)
+    vector: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

@@ -2,21 +2,26 @@ from app.core.config import Settings
 from app.db.session import create_database_engine, create_session_factory
 from app.documents.storage import FileStorage
 from app.jobs.runner import JobRegistry, Worker
+from app.knowledge.embeddings import EmbeddingProvider, FastEmbedProvider
 from app.knowledge.ingestion import KnowledgeIngestionHandler
 
 
-def build_registry(session_factory=None, storage: FileStorage | None = None) -> JobRegistry:
+def build_registry(
+    session_factory=None,
+    storage: FileStorage | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+) -> JobRegistry:
     """Register production handlers with their isolated dependencies."""
     registry = JobRegistry()
     if session_factory is not None:
-        registry.register("knowledge.ingest", KnowledgeIngestionHandler(session_factory, storage))
+        registry.register("knowledge.ingest", KnowledgeIngestionHandler(session_factory, storage, embedding_provider))
     return registry
 
 
 def create_worker(engine, registry: JobRegistry | None = None) -> Worker:
     settings = Settings()
     session_factory = create_session_factory(engine)
-    registry = registry or build_registry(session_factory, FileStorage(settings))
+    registry = registry or build_registry(session_factory, FileStorage(settings), FastEmbedProvider())
     if not registry.handlers:
         raise RuntimeError("no registered handlers")
     return Worker(

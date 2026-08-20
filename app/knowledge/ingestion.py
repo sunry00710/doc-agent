@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from uuid import UUID
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -16,10 +16,12 @@ from app.jobs.models import Job, JobStatus
 from app.jobs.runner import JobHandler
 from app.jobs.service import RetryableJobError
 from app.knowledge.chunking import chunk_markdown
+from app.knowledge.embeddings import EmbeddingProvider, normalized_documents
 from app.knowledge.models import (
     GenerationState,
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeEmbedding,
     KnowledgeGeneration,
     KnowledgeSpace,
     KnowledgeState,
@@ -77,19 +79,36 @@ def _read_verified_source(storage: FileStorage, version: DocumentVersion) -> str
         raise _index_failure(exc) from exc
 
 
-def ingest_version(session: Session, storage: FileStorage, version_id: UUID, space_id: UUID, *, rebuild: bool = False) -> KnowledgeDocument:
+def _has_complete_embeddings(session: Session, generation_id: str) -> bool:
+    chunk_count = session.scalar(select(func.count()).select_from(KnowledgeChunk).where(KnowledgeChunk.generation_id == generation_id))
+    embedding_count = session.scalar(select(func.count()).select_from(KnowledgeEmbedding).where(KnowledgeEmbedding.generation_id == generation_id))
+    return chunk_count == embedding_count
+
+
+def ingest_version(
+    session: Session,
+    storage: FileStorage,
+    version_id: UUID,
+    space_id: UUID,
+    *,
+    rebuild: bool = False,
+    embedding_provider: EmbeddingProvider | None = None,
+) -> KnowledgeDocument:
     if session.bind is None or session.bind.dialect.name != "sqlite":
         raise _index_failure()
 
     def index() -> KnowledgeDocument:
+        should_rebuild = rebuild
         version = session.get(DocumentVersion, str(version_id))
         space = session.get(KnowledgeSpace, str(space_id))
         if version is None or space is None:
             raise AppError("not_found", "Knowledge source not found", 404)
         source = _read_verified_source(storage, version)
         document = _active_document(session, version.id, space.id)
-        if document is not None and not rebuild:
-            return document
+        if document is not None and not should_rebuild:
+            if embedding_provider is None or _has_complete_embeddings(session, document.active_generation_id):
+                return document
+            should_rebuild = True
         if document is None:
             try:
                 with session.begin_nested():
@@ -105,14 +124,20 @@ def ingest_version(session: Session, storage: FileStorage, version_id: UUID, spa
         try:
             with session.begin_nested():
                 active = _active_document(session, version.id, space.id)
-                if active is not None and not rebuild:
-                    return active
+                if active is not None and not should_rebuild:
+                    if embedding_provider is None or _has_complete_embeddings(session, active.active_generation_id):
+                        return active
+                    should_rebuild = True
                 generation = KnowledgeGeneration(knowledge_document_id=document.id, state=GenerationState.building)
                 session.add(generation)
                 session.flush()
-                for chunk in chunk_markdown(source, version.id):
+                chunks = chunk_markdown(source, version.id)
+                vectors = normalized_documents(embedding_provider, [chunk.text for chunk in chunks]) if embedding_provider is not None and chunks else None
+                for index, chunk in enumerate(chunks):
                     session.add(KnowledgeChunk(id=chunk.id, generation_id=generation.id, version_id=version.id, heading_path=list(chunk.heading_path), start_offset=chunk.start_offset, end_offset=chunk.end_offset, text=chunk.text))
                     session.execute(text("INSERT INTO knowledge_chunks_fts (chunk_id, generation_id, text) VALUES (:chunk_id, :generation_id, :text)"), {"chunk_id": chunk.id, "generation_id": generation.id, "text": _fts_text(chunk.text)})
+                    if vectors is not None:
+                        session.add(KnowledgeEmbedding(chunk_id=chunk.id, generation_id=generation.id, dimension=int(vectors.shape[1]), vector=vectors[index].tobytes()))
                 session.flush()
                 document.active_generation_id = generation.id
                 generation.state = GenerationState.active
@@ -134,9 +159,15 @@ class JobClaimLostError(Exception):
 
 
 class KnowledgeIngestionHandler(JobHandler):
-    def __init__(self, session_factory: Callable[[], Session], storage: FileStorage | None) -> None:
+    def __init__(
+        self,
+        session_factory: Callable[[], Session],
+        storage: FileStorage | None,
+        embedding_provider: EmbeddingProvider | None = None,
+    ) -> None:
         self.session_factory = session_factory
         self.storage = storage
+        self.embedding_provider = embedding_provider
 
     def run(self, payload: dict) -> dict:
         payload = payload.copy()
@@ -162,7 +193,14 @@ class KnowledgeIngestionHandler(JobHandler):
                 if fence.rowcount != 1:
                     session.rollback()
                     raise JobClaimLostError("knowledge ingestion claim is no longer active")
-                document = ingest_version(session, self.storage, job_payload.version_id, job_payload.space_id)
+                ingest_kwargs = {"embedding_provider": self.embedding_provider} if self.embedding_provider is not None else {}
+                document = ingest_version(
+                    session,
+                    self.storage,
+                    job_payload.version_id,
+                    job_payload.space_id,
+                    **ingest_kwargs,
+                )
                 session.commit()
                 return {
                     "version_id": str(job_payload.version_id),
