@@ -19,6 +19,7 @@ from app.identity.router import router as auth_router
 from app.jobs.router import router as jobs_router
 from app.knowledge.router import router as knowledge_router
 from app.projects.router import router as projects_router
+from app.quality.router import router as quality_router
 
 logger = logging.getLogger(__name__)
 
@@ -127,4 +128,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(jobs_router)
     app.include_router(knowledge_router)
+    app.include_router(quality_router)
     return app
