@@ -17,6 +17,7 @@ from app.db.session import create_database_engine, create_session_factory
 from app.documents.router import router as documents_router
 from app.identity.router import router as auth_router
 from app.jobs.router import router as jobs_router
+from app.knowledge.promotion_router import router as promotion_router
 from app.knowledge.router import router as knowledge_router
 from app.projects.router import router as projects_router
 from app.quality.router import router as quality_router
@@ -82,7 +83,9 @@ def _error_response(request: Request, error: AppError) -> JSONResponse:
 
 
 def _public_http_error(status_code: int) -> AppError:
-    code, message = HTTP_ERROR_MESSAGES.get(status_code, ("http_error", "Request failed"))
+    code, message = HTTP_ERROR_MESSAGES.get(
+        status_code, ("http_error", "Request failed")
+    )
     return AppError(code, message, status_code)
 
 
@@ -97,7 +100,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        request.state.request_id = _select_request_id(request.headers.get("X-Request-ID"))
+        request.state.request_id = _select_request_id(
+            request.headers.get("X-Request-ID")
+        )
         response = await call_next(request)
         response.headers["X-Request-ID"] = str(request.state.request_id)
         return response
@@ -107,17 +112,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _error_response(request, exc)
 
     @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-        return _error_response(request, AppError("validation_error", "Request validation failed", 422))
+    async def handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return _error_response(
+            request, AppError("validation_error", "Request validation failed", 422)
+        )
 
     @app.exception_handler(StarletteHTTPException)
-    async def handle_http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    async def handle_http_error(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
         return _error_response(request, _public_http_error(exc.status_code))
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled exception request_id=%s", _request_id(request))
-        return _error_response(request, AppError("internal_error", "Internal server error", 500))
+        return _error_response(
+            request, AppError("internal_error", "Internal server error", 500)
+        )
 
     @app.get("/api/health", responses=ERROR_RESPONSES)
     async def health() -> dict[str, str]:
@@ -129,6 +142,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(jobs_router)
     app.include_router(knowledge_router)
+    app.include_router(promotion_router)
     app.include_router(quality_router)
     app.include_router(reviews_router)
     return app

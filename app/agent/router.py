@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.documents.models import Document, DocumentVersion
 from app.identity.models import User
 from app.identity.router import get_current_user
+from app.knowledge.promotion_tools import register_promotion_tools
 from app.projects.permissions import ProjectAction, require_project_permission
 from app.providers.fake import FakeProvider
 from app.quality.tools import register_quality_tools
@@ -44,6 +45,7 @@ def get_runner(request: Request) -> AgentRunner:
     if registry is None:
         registry = ToolRegistry()
         register_quality_tools(registry)
+        register_promotion_tools(registry)
     return AgentRunner(provider, registry)
 
 
@@ -73,6 +75,8 @@ def authorize_context(data: ChatRequest, user: User, session: Session, request_i
         idempotency_key=data.idempotency_key,
         actor_id=str(user.id),
         request_id=request_id,
+        session=session,
+        actor=user,
     )
 
 

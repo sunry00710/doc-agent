@@ -9,6 +9,7 @@ from app.documents import models as document_models  # noqa: F401
 from app.identity import models  # noqa: F401
 from app.jobs import models as job_models  # noqa: F401
 from app.knowledge import models as knowledge_models  # noqa: F401
+from app.knowledge import promotion as promotion_models  # noqa: F401
 from app.projects import models as project_models  # noqa: F401
 
 config = context.config
@@ -42,7 +43,9 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(
+            connection=connection, target_metadata=target_metadata, compare_type=True
+        )
         with context.begin_transaction():
             context.run_migrations()
 

@@ -37,6 +37,8 @@ class AgentContext:
     actor_id: str | None = None
     request_id: str | None = None
     deadline: float | None = None
+    session: object | None = None
+    actor: User | None = None
 
 
 class ToolTrace(BaseModel):
