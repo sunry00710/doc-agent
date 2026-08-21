@@ -16,6 +16,7 @@ from app.identity.models import User
 from app.identity.router import get_current_user
 from app.projects.permissions import ProjectAction, require_project_permission
 from app.providers.fake import FakeProvider
+from app.quality.tools import register_quality_tools
 
 router = APIRouter(prefix="/api", tags=["agent"])
 
@@ -42,6 +43,7 @@ def get_runner(request: Request) -> AgentRunner:
     registry = getattr(request.app.state, "agent_tools", None)
     if registry is None:
         registry = ToolRegistry()
+        register_quality_tools(registry)
     return AgentRunner(provider, registry)
 
 
