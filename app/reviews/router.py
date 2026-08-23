@@ -15,6 +15,7 @@ from app.reviews.schemas import (
     ResponseRead,
     ReviewAssign,
     ReviewCreate,
+    ReviewDetailRead,
     ReviewRead,
     ReviewTransition,
 )
@@ -23,11 +24,36 @@ from app.reviews.service import (
     assign_reviewer,
     confirm_comment_response,
     create_review,
+    list_reviews,
     respond_to_comment,
+    review_detail,
     transition,
 )
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
+
+
+@router.get("/documents/{document_id}", response_model=list[ReviewRead])
+def list_for_document(
+    document_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db)],
+) -> list[ReviewRead]:
+    return list_reviews(session, document_id, user)
+
+
+@router.get("/{review_id}", response_model=ReviewDetailRead)
+def detail(
+    review_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db)],
+) -> ReviewDetailRead:
+    review, comments, responses = review_detail(session, review_id, user)
+    return ReviewDetailRead(
+        **ReviewRead.model_validate(review).model_dump(),
+        comments=[CommentRead.model_validate(item) for item in comments],
+        responses=[ResponseRead.model_validate(item) for item in responses],
+    )
 
 
 @router.post("/documents/{document_id}", response_model=ReviewRead, status_code=201)

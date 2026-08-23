@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
@@ -52,6 +52,22 @@ def _require_assigned_reviewer(review: DocumentReview, actor: User) -> None:
         raise AppError(
             "permission_denied", "Review is assigned to another reviewer", 403
         )
+
+
+def list_reviews(session: Session, document_id: UUID, actor: User) -> list[DocumentReview]:
+    document = session.get(Document, str(document_id))
+    if document is None:
+        raise AppError("not_found", "Document not found", 404)
+    require_project_permission(UUID(document.project_id), ProjectAction.view, actor, session)
+    return list(session.scalars(select(DocumentReview).where(DocumentReview.document_id == document.id).order_by(DocumentReview.created_at.desc())))
+
+
+def review_detail(session: Session, review_id: UUID, actor: User) -> tuple[DocumentReview, list[ReviewComment], list[CommentResponse]]:
+    review = _review(session, review_id, actor, ProjectAction.view)
+    comments = list(session.scalars(select(ReviewComment).where(ReviewComment.review_id == review.id).order_by(ReviewComment.created_at, ReviewComment.id)))
+    comment_ids = [comment.id for comment in comments]
+    responses = [] if not comment_ids else list(session.scalars(select(CommentResponse).where(CommentResponse.comment_id.in_(comment_ids)).order_by(CommentResponse.created_at, CommentResponse.id)))
+    return review, comments, responses
 
 
 def create_review(

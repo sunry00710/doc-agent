@@ -1,33 +1,22 @@
 import { useEffect, useState } from 'react'
-import { api, type Citation, type Job, type User } from '../api/client'
+import { api, type Citation, type Document, type DocumentVersion, type Job, type ReviewDetail, type User } from '../api/client'
 import { AgentWorkspace } from '../features/agent/AgentWorkspace'
 import { LoginView } from '../features/auth/LoginView'
 import { CitationPanel } from '../features/citations/CitationPanel'
+import { DocumentHub } from '../features/documents/DocumentHub'
+import { KnowledgeManager } from '../features/knowledge/KnowledgeManager'
 import { JobStatus } from '../features/jobs/JobStatus'
 
 export function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem('doc-agent-token') ?? '')
-  const [user, setUser] = useState<User | null>(null)
-  const [citations, setCitations] = useState<Citation[]>([])
-  const [jobs, setJobs] = useState<Job[]>([])
-
-  useEffect(() => {
-    if (!token) return
-    void api.me(token).then(setUser).catch(() => { sessionStorage.removeItem('doc-agent-token'); setToken('') })
-    void api.jobs(token).then((result) => setJobs(result.items)).catch(() => setJobs([]))
-  }, [token])
-
-  async function login(username: string, password: string) {
-    const accessToken = await api.login(username, password)
-    sessionStorage.setItem('doc-agent-token', accessToken)
-    setToken(accessToken)
-  }
-
+  const [user, setUser] = useState<User | null>(null); const [view, setView] = useState(() => window.location.hash.slice(1) || 'workspace'); const [projectId, setProjectId] = useState(''); const [projects, setProjects] = useState<{ id: string; name: string }[]>([]); const [documents, setDocuments] = useState<Document[]>([]); const [document, setDocument] = useState<Document | null>(null); const [versions, setVersions] = useState<DocumentVersion[]>([]); const [selectedVersion, setSelectedVersion] = useState<DocumentVersion | null>(null); const [source, setSource] = useState(''); const [review, setReview] = useState<ReviewDetail | null>(null); const [citations, setCitations] = useState<Citation[]>([]); const [jobs, setJobs] = useState<Job[]>([])
+  useEffect(() => { if (!token) return; void api.me(token).then(setUser).catch(() => { sessionStorage.removeItem('doc-agent-token'); setToken('') }); void api.jobs(token).then((result) => setJobs(result.items)); void api.projects(token).then((result) => { setProjects(result); if (result[0]) setProjectId(result[0].id) }) }, [token])
+  useEffect(() => { if (!token || !projectId) return; void api.documents(token, projectId).then(setDocuments) }, [projectId, token])
+  useEffect(() => { if (!token || !document) return; void api.versions(token, document.id).then(setVersions); void api.reviews(token, document.id).then(async (items) => { if (items[0]) setReview(await api.review(token, items[0].id)) }) }, [document, token])
+  async function selectVersion(version: DocumentVersion) { setSelectedVersion(version); setSource(await api.versionContent(token, version.document_id, version.number)) }
+  async function login(username: string, password: string) { const accessToken = await api.login(username, password); sessionStorage.setItem('doc-agent-token', accessToken); setToken(accessToken) }
+  function navigate(next: string) { window.location.hash = next; setView(next) }
   if (!token || !user) return <LoginView onLogin={login} />
-
-  return <div className="app-shell">
-    <nav className="side-nav" aria-label="Primary navigation"><div className="brand">Doc Agent</div><a className="active" href="#workspace">Workspace</a><a href="#documents">Documents</a><a href="#knowledge">Knowledge</a><a href="#reviews">Reviews</a><div className="account"><strong>{user.username}</strong><span>{user.role}</span><button type="button" onClick={() => { sessionStorage.removeItem('doc-agent-token'); setToken(''); setUser(null) }}>Sign out</button></div></nav>
-    <AgentWorkspace onSend={(text, options) => api.chat(token, { text, confirmed: options.confirmed, idempotency_key: options.idempotencyKey })} onCitations={setCitations} />
-    <div className="right-rail"><CitationPanel citations={citations} /><JobStatus jobs={jobs} onRetry={async (jobId) => { const next = await api.retryJob(token, jobId); setJobs((current) => current.map((job) => job.id === next.id ? next : job)) }} /></div>
-  </div>
+  const refreshReview = async () => { if (review) setReview(await api.review(token, review.id)) }
+  return <div className="app-shell"><nav className="side-nav" aria-label="Primary navigation"><div className="brand">Doc Agent</div>{[['workspace', 'Workspace'], ['documents', 'Documents'], ['knowledge', 'Knowledge'], ['reviews', 'Reviews']].map(([id, label]) => <button type="button" className={view === id ? 'active' : ''} key={id} onClick={() => navigate(id)}>{label}</button>)}<label className="project-select">Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><div className="account"><strong>{user.username}</strong><span>{user.role}</span><button type="button" onClick={() => { sessionStorage.removeItem('doc-agent-token'); setToken(''); setUser(null) }}>Sign out</button></div></nav>{view === 'workspace' && <AgentWorkspace onSend={(text, options) => api.chat(token, { text, confirmed: options.confirmed, idempotency_key: options.idempotencyKey })} onCitations={setCitations} />}{view === 'knowledge' && <KnowledgeManager token={token} selectedVersionId={selectedVersion?.id} />}{(view === 'documents' || view === 'reviews') && <><aside className="document-list"><h2>Documents</h2>{documents.map((item) => <button type="button" className={item.id === document?.id ? 'selected' : ''} key={item.id} onClick={() => { setDocument(item); navigate(view) }}>{item.title}</button>)}</aside><DocumentHub token={token} document={document} versions={versions} source={source} selectedVersion={selectedVersion} onSelectVersion={(version) => void selectVersion(version)} review={review} onRefreshReview={refreshReview} role={user.role} /></>}<div className="right-rail"><CitationPanel citations={citations} /><JobStatus jobs={jobs} onRetry={async (jobId) => { const next = await api.retryJob(token, jobId); setJobs((current) => current.map((job) => job.id === next.id ? next : job)) }} /></div></div>
 }

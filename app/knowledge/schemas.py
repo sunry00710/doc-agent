@@ -38,5 +38,24 @@ class SearchHit(BaseModel):
     end_offset: int
 
 
+class KnowledgeSpaceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    kind: str
+    owner_id: UUID | None
+    project_id: UUID | None
+
+
+class KnowledgeSpaceList(BaseModel):
+    items: list[KnowledgeSpaceRead]
+
+
+from app.knowledge.promotion_schemas import PromotionRead
+
+
+class PromotionList(BaseModel):
+    items: list[PromotionRead]
+
+
 class Citation(SearchHit):
     pass

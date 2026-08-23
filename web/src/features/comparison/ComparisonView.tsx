@@ -1,0 +1,12 @@
+import { useState } from 'react'
+import type { Document, DocumentVersion } from '../../api/client'
+
+export function ComparisonView({ token, versions }: { token: string; versions: DocumentVersion[] }) {
+  const [a, setA] = useState('')
+  const [b, setB] = useState('')
+  const [mode, setMode] = useState('semantic')
+  const [result, setResult] = useState<{ version_a_id: string; version_b_id: string; summary: string; changes: { version_a_id: string; version_b_id: string; summary: string; category: string }[] } | null>(null)
+  const [error, setError] = useState('')
+  async function compare() { setError(''); setResult(null); if (!a || !b || a === b) { setError('Choose two different immutable versions.'); return } const response = await fetch('/api/quality/comparisons', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ version_a_id: a, version_b_id: b, comparison_type: mode }) }); if (!response.ok) { setError('Comparison could not be completed.'); return } const next = await response.json(); if (next.version_a_id !== a || next.version_b_id !== b) { setError('Comparison binding did not match the selected versions.'); return } setResult(next) }
+  return <section className="feature-panel"><p className="eyebrow">Comparison</p><h2>Compare immutable versions</h2><div className="form-row"><label>Version A<select value={a} onChange={(event) => setA(event.target.value)}><option value="">Select</option>{versions.map((version) => <option key={version.id} value={version.id}>v{version.number}</option>)}</select></label><label>Version B<select value={b} onChange={(event) => setB(event.target.value)}><option value="">Select</option>{versions.map((version) => <option key={version.id} value={version.id}>v{version.number}</option>)}</select></label><label>Mode<select value={mode} onChange={(event) => setMode(event.target.value)}><option value="semantic">Semantic</option><option value="requirements">Requirements</option></select></label></div><button type="button" onClick={() => void compare()} disabled={!a || !b || a === b}>Compare</button>{error && <p className="error" role="alert">{error}</p>}{result && <article className="comparison-result"><strong>{result.summary}</strong>{result.changes.filter((change) => change.version_a_id === a && change.version_b_id === b).map((change, index) => <p key={index}><b>{change.category}</b> {change.summary}</p>)}</article>}</section>
+}

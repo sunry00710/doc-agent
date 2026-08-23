@@ -110,6 +110,21 @@ def create_version(
         raise
 
 
+def list_documents(session: Session, project_id: UUID, actor: User) -> list[Document]:
+    require_project_permission(project_id, ProjectAction.view, actor, session)
+    return list(
+        session.scalars(
+            select(Document)
+            .where(Document.project_id == str(project_id))
+            .order_by(Document.created_at.desc())
+        )
+    )
+
+
+def read_document(session: Session, document_id: UUID, actor: User) -> Document:
+    return _require_document_permission(session, document_id, actor, ProjectAction.view)
+
+
 def list_versions(session: Session, document_id: UUID, actor: User) -> list[DocumentVersion]:
     document = _require_document_permission(session, document_id, actor, ProjectAction.view)
     return list(

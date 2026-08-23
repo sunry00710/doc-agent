@@ -68,3 +68,8 @@ class ResponseRead(BaseModel):
     response_version_id: UUID
     assessment: str
     reviewer_confirmed: bool
+
+
+class ReviewDetailRead(ReviewRead):
+    comments: list[CommentRead]
+    responses: list[ResponseRead]

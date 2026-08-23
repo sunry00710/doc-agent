@@ -11,7 +11,9 @@ from app.documents.schemas import DocumentCreate, DocumentRead, DocumentVersionR
 from app.documents.service import (
     create_document,
     create_version,
+    list_documents,
     list_versions,
+    read_document,
     read_version,
 )
 from app.documents.storage import FileStorage
@@ -30,6 +32,24 @@ def read_upload_content(file_object: object, max_upload_bytes: int) -> bytes:
     if len(content) > max_upload_bytes:
         raise ValueError("Document is too large")
     return content
+
+
+@router.get("", response_model=list[DocumentRead])
+def list_for_project(
+    project_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db)],
+):
+    return list_documents(session, project_id, current_user)
+
+
+@router.get("/{document_id}", response_model=DocumentRead)
+def read(
+    document_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[Session, Depends(get_db)],
+):
+    return read_document(session, document_id, current_user)
 
 
 @router.post("", response_model=DocumentRead, status_code=status.HTTP_201_CREATED)
