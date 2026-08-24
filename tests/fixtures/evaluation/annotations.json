@@ -1,0 +1,20 @@
+[
+  {
+    "finding_id": "finding-1",
+    "category": "completeness",
+    "severity": "high",
+    "start_offset": 0,
+    "end_offset": 4,
+    "evidence": "范围",
+    "citation_ids": ["scope-1"]
+  },
+  {
+    "finding_id": "recommendation-1",
+    "category": "recommendation",
+    "severity": "medium",
+    "start_offset": 4,
+    "end_offset": 8,
+    "evidence": "建议",
+    "citation_ids": ["recommendation-1"]
+  }
+]

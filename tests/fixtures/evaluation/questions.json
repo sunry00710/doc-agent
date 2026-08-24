@@ -1,0 +1,20 @@
+[
+  {
+    "id": "audit_scope",
+    "question": "审计报告是否明确界定了审计范围？",
+    "expected_chunk_ids": ["scope-1"],
+    "expected_citations": ["审计范围"]
+  },
+  {
+    "id": "key_finding",
+    "question": "报告指出的主要发现是什么？",
+    "expected_chunk_ids": ["finding-1"],
+    "expected_citations": ["主要发现"]
+  },
+  {
+    "id": "recommendation",
+    "question": "报告提出了哪些整改建议？",
+    "expected_chunk_ids": ["recommendation-1"],
+    "expected_citations": ["整改建议"]
+  }
+]
