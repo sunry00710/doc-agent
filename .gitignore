@@ -1,0 +1,17 @@
+# Python 生成物
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 本地数据与密钥
+doc_agent.db
+storage/
+.env
+
+# 前端生成物
+web/node_modules/
+web/dist/
+web/.edge-profile/
+
+# 演示截图（本地工件，不入库）
+web/demo-*.png
