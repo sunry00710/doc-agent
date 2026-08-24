@@ -139,8 +139,12 @@ def search(
     actor: User,
     backend: SearchBackend | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    allowed_space_ids: frozenset[str] | None = None,
 ) -> list[SearchHit]:
     documents = _authorized_documents(session, actor)
+    if allowed_space_ids is not None:
+        # 会话级空间子集（chat 的 knowledge_space_ids）：在用户授权范围内进一步收窄
+        documents = [document for document in documents if document.space_id in allowed_space_ids]
     active_generation_ids = {document.active_generation_id for document in documents if document.active_generation_id}
     chunks = list(session.scalars(select(KnowledgeChunk).where(KnowledgeChunk.generation_id.in_(active_generation_ids)))) if active_generation_ids else []
     chunk_by_key = {(chunk.id, chunk.generation_id): chunk for chunk in chunks}

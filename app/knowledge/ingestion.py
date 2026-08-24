@@ -60,6 +60,13 @@ def _fts_text(source: str) -> str:
     return "".join(f" {character} " if "一" <= character <= "鿿" else character for character in source)
 
 
+def _indexed_text(chunk: object) -> str:
+    # 标题路径参与 FTS 索引：保证按章节标题（如“责任分工”）检索可命中正文块
+    heading_path = getattr(chunk, "heading_path", None) or []
+    body = getattr(chunk, "text", "")
+    return " ".join([*heading_path, body])
+
+
 def _index_failure(exc: Exception | None = None) -> AppError:
     error = AppError("index_failure", "Knowledge index verification failed", 500)
     if exc is not None:
@@ -135,7 +142,7 @@ def ingest_version(
                 vectors = normalized_documents(embedding_provider, [chunk.text for chunk in chunks]) if embedding_provider is not None and chunks else None
                 for index, chunk in enumerate(chunks):
                     session.add(KnowledgeChunk(id=chunk.id, generation_id=generation.id, version_id=version.id, heading_path=list(chunk.heading_path), start_offset=chunk.start_offset, end_offset=chunk.end_offset, text=chunk.text))
-                    session.execute(text("INSERT INTO knowledge_chunks_fts (chunk_id, generation_id, text) VALUES (:chunk_id, :generation_id, :text)"), {"chunk_id": chunk.id, "generation_id": generation.id, "text": _fts_text(chunk.text)})
+                    session.execute(text("INSERT INTO knowledge_chunks_fts (chunk_id, generation_id, text) VALUES (:chunk_id, :generation_id, :text)"), {"chunk_id": chunk.id, "generation_id": generation.id, "text": _fts_text(_indexed_text(chunk))})
                     if vectors is not None:
                         session.add(KnowledgeEmbedding(chunk_id=chunk.id, generation_id=generation.id, dimension=int(vectors.shape[1]), vector=vectors[index].tobytes()))
                 session.flush()

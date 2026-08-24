@@ -152,7 +152,8 @@ def test_fts_filters_unauthorized_chunk_generation_pairs(tmp_path: Path):
         ingest_version(session, storage, UUID(private_version.id), UUID(personal.id))
         session.commit()
 
-        allowed_chunk_id = session.execute(text("SELECT chunk_id FROM knowledge_chunks_fts WHERE text = 'needle'")) .scalar_one()
+        # heading_path 已拼入 FTS 索引文本，改为从 chunk 表按版本直接取（不依赖 FTS 文本格式）
+        allowed_chunk_id = session.execute(text("SELECT id FROM knowledge_chunks WHERE version_id = :version_id"), {"version_id": allowed_version.id}).scalar_one()
         private_generation_id = session.execute(text("SELECT active_generation_id FROM knowledge_documents WHERE version_id = :version_id"), {"version_id": private_version.id}).scalar_one()
         session.execute(text("UPDATE knowledge_chunks_fts SET chunk_id = :chunk_id WHERE generation_id = :generation_id"), {"chunk_id": allowed_chunk_id, "generation_id": private_generation_id})
         session.commit()

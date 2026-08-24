@@ -1,12 +1,13 @@
 from uuid import UUID
 
 import pytest
-from app.core.config import DEVELOPMENT_JWT_SECRET, Settings
-from app.core.errors import AppError
-from app.main import create_app
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+
+from app.core.config import DEVELOPMENT_JWT_SECRET, Settings
+from app.core.errors import AppError
+from app.main import create_app
 
 
 def client_with_routes() -> TestClient:

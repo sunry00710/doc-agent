@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent.loop import AgentContext, AgentResult, AgentRunner
@@ -14,7 +15,10 @@ from app.db.session import get_db
 from app.documents.models import Document, DocumentVersion
 from app.identity.models import User
 from app.identity.router import get_current_user
+from app.knowledge.agent_tools import register_knowledge_tools
+from app.knowledge.models import KnowledgeSpace, KnowledgeSpaceKind
 from app.knowledge.promotion_tools import register_promotion_tools
+from app.projects.models import ProjectMember
 from app.projects.permissions import ProjectAction, require_project_permission
 from app.providers.fake import FakeProvider
 from app.quality.tools import register_quality_tools
@@ -46,7 +50,24 @@ def get_runner(request: Request) -> AgentRunner:
         registry = ToolRegistry()
         register_quality_tools(registry)
         register_promotion_tools(registry)
+        register_knowledge_tools(registry)
     return AgentRunner(provider, registry)
+
+
+def _authorize_knowledge_space(space: KnowledgeSpace, user: User, session: Session) -> bool:
+    if space.kind == KnowledgeSpaceKind.personal:
+        return space.owner_id == user.id
+    if space.kind == KnowledgeSpaceKind.project:
+        if space.project_id is None:
+            return False
+        membership = session.scalar(
+            select(ProjectMember).where(
+                ProjectMember.project_id == space.project_id,
+                ProjectMember.user_id == user.id,
+            )
+        )
+        return membership is not None
+    return space.kind in (KnowledgeSpaceKind.shared, KnowledgeSpaceKind.standard)
 
 
 def authorize_context(data: ChatRequest, user: User, session: Session, request_id: str | None) -> AgentContext:
@@ -62,9 +83,12 @@ def authorize_context(data: ChatRequest, user: User, session: Session, request_i
         require_project_permission(UUID(document.project_id), ProjectAction.view, user, session)
         if data.project_id is not None and document.project_id != str(data.project_id):
             raise AppError("validation_error", "Document version is outside project context", 422)
-    if data.knowledge_space_ids:
-        # Knowledge spaces are introduced in Task 7; they cannot be asserted as authorized yet.
-        raise AppError("permission_denied", "Knowledge space access denied", 403)
+    for space_id in data.knowledge_space_ids:
+        space = session.get(KnowledgeSpace, str(space_id))
+        if space is None:
+            raise AppError("not_found", "Knowledge space not found", 404)
+        if not _authorize_knowledge_space(space, user, session):
+            raise AppError("permission_denied", "Knowledge space access denied", 403)
     permissions = frozenset({"document:read"})
     return AgentContext(
         project_id=data.project_id,

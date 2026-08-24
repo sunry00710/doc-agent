@@ -1,4 +1,5 @@
 import pytest
+
 from app.knowledge.ranking import RankedId, reciprocal_rank_fusion
 
 

@@ -1,5 +1,6 @@
-from app.identity.models import Role
 from pydantic import BaseModel, ConfigDict
+
+from app.identity.models import Role
 
 
 class Token(BaseModel):

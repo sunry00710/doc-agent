@@ -50,6 +50,24 @@ class KnowledgeSpaceList(BaseModel):
     items: list[KnowledgeSpaceRead]
 
 
+class SpaceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["personal"] = "personal"
+
+
+class SpaceIngest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version_id: UUID
+
+
+class IngestResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: UUID
+    space_id: UUID
+    version_id: UUID
+    state: str
+
+
 from app.knowledge.promotion_schemas import PromotionRead
 
 

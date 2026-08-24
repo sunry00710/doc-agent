@@ -1,12 +1,13 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
+from jwt.exceptions import InvalidTokenError
+from sqlalchemy.orm import Session
+
 from app.core.errors import AppError
 from app.core.security import DUMMY_PASSWORD_HASH, verify_password
 from app.identity.models import User
 from app.identity.repository import get_user_by_id, get_user_by_username
-from jwt.exceptions import InvalidTokenError
-from sqlalchemy.orm import Session
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -34,7 +35,7 @@ def authenticate_user(session: Session, username: str, password: str) -> User:
 
 
 def create_access_token(user: User, secret: str) -> str:
-    issued_at = datetime.now(timezone.utc).replace(microsecond=0)
+    issued_at = datetime.now(UTC).replace(microsecond=0)
     payload = {
         "sub": user.id,
         "role": user.role.value,

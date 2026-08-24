@@ -4,8 +4,12 @@ from uuid import UUID
 import jwt
 import pytest
 import sqlalchemy as sa
-from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from alembic import command
 from app.core.config import Settings
 from app.core.security import hash_password
 from app.db.base import Base
@@ -14,9 +18,6 @@ from app.identity.models import Role, User
 from app.identity.repository import add_user
 from app.identity.service import authenticate_user
 from app.main import create_app
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
 
 TEST_JWT_SECRET = "test-secret-at-least-thirty-two-bytes"
 

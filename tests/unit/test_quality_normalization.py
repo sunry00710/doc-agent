@@ -1,4 +1,5 @@
 import pytest
+
 from app.quality.schemas import Finding, FindingSummary, normalize_findings
 
 

@@ -1,8 +1,9 @@
 from uuid import uuid4
 
 import pytest
-from app.quality.contracts import ContractRevisionInput, Requirement
 from pydantic import ValidationError
+
+from app.quality.contracts import ContractRevisionInput, Requirement
 
 
 def contract_input() -> ContractRevisionInput:

@@ -32,9 +32,18 @@ from app.quality.supervisor import SupervisorSimulation, simulate_supervisor_rev
 
 router = APIRouter(prefix="/api/quality", tags=["quality"])
 
+_COMPARISON_TYPE_LABELS = {
+    "semantic": "语义",
+    "requirements": "要求",
+    "version": "版本",
+    "precedent": "先例",
+    "standards": "标准",
+}
+
 
 class ComparisonRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     version_a_id: UUID
     version_b_id: UUID
     comparison_type: str = Field(min_length=1, max_length=32)
@@ -68,7 +77,8 @@ def compare_versions(
     require_project_permission(UUID(document_b.project_id), ProjectAction.view, user, session)
     source_a = read_version(session, storage, UUID(document_a.id), version_a.number, user).decode("utf-8")
     source_b = read_version(session, storage, UUID(document_b.id), version_b.number, user).decode("utf-8")
-    result = {"changes": [{"category": "content", "summary": f"Compared {len(source_a)} to {len(source_b)} characters", "version_a_id": str(data.version_a_id), "version_b_id": str(data.version_b_id), "citations": []}], "summary": f"{data.comparison_type} comparison completed", "citations": []}
+    label = _COMPARISON_TYPE_LABELS.get(data.comparison_type, data.comparison_type)
+    result = {"changes": [{"category": "content", "summary": f"版本 A 共 {len(source_a)} 字，版本 B 共 {len(source_b)} 字", "version_a_id": str(data.version_a_id), "version_b_id": str(data.version_b_id), "citations": []}], "summary": f"{label}对比已完成", "citations": []}
     validated = compare_documents(ComparisonResult.model_validate(result), str(data.version_a_id), str(data.version_b_id))
     return ComparisonResponse(version_a_id=data.version_a_id, version_b_id=data.version_b_id, **validated.model_dump())
 

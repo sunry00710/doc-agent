@@ -1,6 +1,7 @@
-from app.identity.models import User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.identity.models import User
 
 
 def normalize_username(username: str) -> str:

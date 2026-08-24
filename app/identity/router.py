@@ -1,5 +1,9 @@
 from typing import Annotated
 
+from fastapi import APIRouter, Depends, Request
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+
 from app.db.session import get_db
 from app.identity.models import User
 from app.identity.schemas import Token, UserRead
@@ -9,9 +13,6 @@ from app.identity.service import (
     create_access_token,
     resolve_current_user,
 )
-from fastapi import APIRouter, Depends, Request
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)

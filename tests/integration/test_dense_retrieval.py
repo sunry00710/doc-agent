@@ -3,6 +3,9 @@ from uuid import UUID
 
 import numpy as np
 import pytest
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.orm import Session, sessionmaker
+
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.security import hash_password
@@ -22,8 +25,6 @@ from app.knowledge.models import (
 from app.knowledge.schemas import SearchQuery
 from app.knowledge.search import _DENSE_CANDIDATE_LIMIT, DenseBackend, search
 from app.projects.models import MembershipRole, Project, ProjectMember
-from sqlalchemy import create_engine, select, text
-from sqlalchemy.orm import Session, sessionmaker
 
 
 class FakeEmbeddingProvider(EmbeddingProvider):
