@@ -3,17 +3,20 @@ from __future__ import annotations
 import argparse
 from getpass import getpass
 
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from app.core.config import Settings
 from app.core.security import hash_password
 from app.db.session import create_database_engine
 from app.identity.models import Role, User
 from app.identity.repository import add_user, get_user_by_username, normalize_username
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Create the initial local administrator account.")
+    parser = argparse.ArgumentParser(
+        description="Create the initial local administrator account."
+    )
     parser.add_argument("--username", required=True)
     return parser.parse_args()
 
