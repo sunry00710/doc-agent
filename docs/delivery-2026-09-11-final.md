@@ -59,13 +59,14 @@ skip 守卫不一致（低影响）。
 
 | 项 | 结果 |
 |---|---|
-| 后端 pytest | **225 passed, 1 skipped**（含新增 admin_users 7 / ingestion_queue 3 / draft_tool 5） |
-| 前端 vitest | **38 passed**（新增对比持久化 3、起草按钮 1、角色文案适配） |
-| E2E | 11 tests / 5 spec（含 three-roles、comparison 两组新 spec），全绿记录见文末补记 |
+| 后端 pytest | **227 passed, 1 skipped**（含新增 admin_users 7 / ingestion_queue 3 / draft_tool 5 / identity_roles 2） |
+| 前端 vitest | **40 passed**（新增对比持久化 3、起草按钮 1、DocumentHub 草稿回填 2） |
+| E2E | **11 passed**（5 spec：critical-flow、promotion-quality ×5、review-workspace、three-roles ×3、comparison），两次连续干净运行 |
 | tsc | 干净 |
-| ruff | `app tests` 0 错误 |
-| 浏览器实测 | 三角色登录/能力显隐、对比持久化、PDF 触发、起草回填（详见第五节） |
-| 打包 | zip 214 文件 0.4MB，抽查关键文件在位、无 .env/.db/缓存泄漏 |
+| ruff | `app tests scripts` 0 错误 |
+| 浏览器实测 | 三角色登录/能力显隐、对比持久化、PDF 触发、起草回填（F 项发现并修复 1 个 bug，见第五节） |
+| 打包 | `dist/doc-agent-delivery-20260911.zip`（220 文件 0.5MB，抽查关键文件在位、无 .env/.db/缓存泄漏） |
+| 提交 | `65eea72`（本地分支 feature/doc-agent-foundation，未推送） |
 
 ## 四、给下一位接手者（重要约定）
 
