@@ -8,20 +8,22 @@
 ```
 项目根: D:\workspace1\doc-agent-worktrees\foundation
 分支: feature/doc-agent-foundation（仅本地，未 push）
-HEAD: 需要接手方自己跑 git log --oneline -3 确认
+最新提交: 339f867（语义对比）← 1d5821a（审计 system prompt）← ef1ae09（FilePicker）← fcf76a3（主提交）
+工作区: 干净（截至 2026-09-11 夜，接手方验证并提交后）
 ```
 
 - **服务当前在运行**：后端 127.0.0.1:8000、前端 127.0.0.1:5173、登录 `demo / DemoPass-2026!`
 - 重启命令见 `docs/demo-handoff-2026-09-11.md` 第一节
-- **未提交改动**：UI 文件选择器改造（`FilePicker.tsx` 新增 + 两个表单替换 + CSS）。接手后先 `git status` 确认，然后提交或继续改
+- **历史提交链**：上午验收 → `fcf76a3`（77 文件，双 Provider + 上下文模型）→ `ef1ae09`（FilePicker + 布局修复）→ `1d5821a`（审计 prompt）→ `339f867`（语义对比三引擎）
+- **下一步工作见第九节「接手方验证记录」的 9.4 遗留表**
 
 ## 一、测试基线（当前全绿）
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 后端 | `uv run pytest tests/integration tests/unit -q` | 184 passed, 1 skipped |
-| 前端 | `npm --prefix web test -- --run` | 29 passed |
-| E2E | `npm --prefix web run test:e2e` | 7 passed（自起隔离环境，独立端口） |
+| 后端 | `uv run pytest tests/integration tests/unit -q` | **208 passed, 1 skipped** |
+| 前端 | `npm --prefix web test -- --run` | **34 passed** |
+| E2E | `npm --prefix web run test:e2e` | **7 passed**（自起隔离环境，独立端口） |
 | 类型 | `cd web && npx tsc --noEmit` | 干净 |
 
 ## 二、用户本次提出的 6 个问题（已取证，答案在此）
