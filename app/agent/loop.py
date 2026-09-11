@@ -67,17 +67,27 @@ class AgentResult(BaseModel):
 
 
 class AgentRunner:
-    def __init__(self, provider: ModelProvider, tools: ToolRegistry, limits: AgentLimits | None = None) -> None:
+    def __init__(
+        self,
+        provider: ModelProvider,
+        tools: ToolRegistry,
+        limits: AgentLimits | None = None,
+        system_prompt: str | None = None,
+    ) -> None:
         self.provider = provider
         self.tools = tools
         self.limits = limits or AgentLimits()
+        self.system_prompt = system_prompt
 
     def run(self, user: User, text: str, context: AgentContext) -> AgentResult:
         if context.actor_id is None:
             context = AgentContext(**{**context.__dict__, "actor_id": str(user.id)})
         started = time.monotonic()
         deadline = context.deadline if context.deadline is not None else started + self.limits.max_duration_seconds
-        messages = [ModelMessage(role="user", content=text)]
+        messages: list[ModelMessage] = []
+        if self.system_prompt:
+            messages.append(ModelMessage(role="system", content=self.system_prompt))
+        messages.append(ModelMessage(role="user", content=text))
         traces: list[ToolTrace] = []
         input_tokens = output_tokens = cost_micro_units = 0
         provider_request_id: str | None = None
@@ -90,7 +100,11 @@ class AgentRunner:
 
         for _round in range(self.limits.max_rounds):
             remaining_tokens = self.limits.max_tokens - input_tokens - output_tokens
-            if len(messages) >= self.limits.max_messages or remaining_tokens <= 0 or stopped():
+            if (
+                self._conversation_length(messages) >= self.limits.max_messages
+                or remaining_tokens <= 0
+                or stopped()
+            ):
                 return result("budget_exhausted")
             try:
                 completion = self.provider.complete(CompletionRequest(
@@ -114,7 +128,7 @@ class AgentRunner:
             if not completion.tool_calls:
                 return result("completed", answer=completion.content or "")
             for call in completion.tool_calls:
-                if len(messages) >= self.limits.max_messages or stopped():
+                if self._conversation_length(messages) >= self.limits.max_messages or stopped():
                     return result("budget_exhausted")
                 raw_result, error_code, definition, parsed = self.tools.execute_detailed(call.name, call.arguments, context)
                 trace = ToolTrace(tool_call_id=call.id, name=call.name, arguments=self.tools.trace_arguments(definition, parsed), status="pending")
@@ -133,3 +147,8 @@ class AgentRunner:
                 if stopped():
                     return result("budget_exhausted")
         return result("max_rounds")
+
+    @staticmethod
+    def _conversation_length(messages: list[ModelMessage]) -> int:
+        """system 提示词是固定开销，不占用 max_messages 代表的对话轮次预算。"""
+        return sum(1 for message in messages if message.role != "system")

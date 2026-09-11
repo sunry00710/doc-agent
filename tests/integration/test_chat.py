@@ -16,6 +16,7 @@ from app.identity.models import Role, User
 from app.main import create_app
 from app.projects.models import MembershipRole, Project, ProjectMember
 from app.providers.fake import FakeProvider
+from app.quality.prompts import SYSTEM_PROMPT
 
 
 @pytest.fixture
@@ -78,6 +79,23 @@ def test_chat_returns_offline_provider_answer(client, db_session):
     assert response.status_code == 200
     assert response.json()["text"] == "Offline answer"
     assert response.json()["traces"] == []
+
+
+def test_chat_injects_the_audit_system_prompt(client, db_session):
+    """Q7 回归：模型调用前必须先收到审计文书规范，而不是裸跑。"""
+    user = user_factory(db_session, "audit-prompt-user")
+    provider = FakeProvider([AssistantMessage(content="Offline answer")])
+    client.app.state.agent_provider = provider
+
+    response = client.post(
+        "/api/chat", json={"text": "帮我检查这份报告"}, headers=auth_headers(client, user.username)
+    )
+
+    assert response.status_code == 200
+    messages = provider.requests[0].messages
+    assert messages[0].role == "system"
+    assert messages[0].content == SYSTEM_PROMPT
+    assert [message.role for message in messages][1:] == ["user"]
 
 
 def test_chat_rejects_role_injection(client, db_session):

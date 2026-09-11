@@ -23,6 +23,7 @@ from app.knowledge.promotion_tools import register_promotion_tools
 from app.projects.models import ProjectMember
 from app.projects.permissions import ProjectAction, require_project_permission
 from app.providers.fake import FakeProvider
+from app.quality.prompts import SYSTEM_PROMPT
 from app.quality.tools import register_quality_tools
 
 router = APIRouter(prefix="/api", tags=["agent"])
@@ -53,7 +54,7 @@ def get_runner(request: Request) -> AgentRunner:
         register_quality_tools(registry)
         register_promotion_tools(registry)
         register_knowledge_tools(registry)
-    return AgentRunner(provider, registry)
+    return AgentRunner(provider, registry, system_prompt=SYSTEM_PROMPT)
 
 
 def _authorize_knowledge_space(space: KnowledgeSpace, user: User, session: Session) -> bool:

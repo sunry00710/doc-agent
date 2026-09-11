@@ -97,6 +97,7 @@ HEAD: 需要接手方自己跑 git log --oneline -3 确认
 **待办（接真实模型前最该做）**：
 - 把 `prompts.py` 激活为 system prompt：`AgentRunner.run`（`loop.py:80`）目前只发 user 消息，
   需在 messages 前加 `ModelMessage(role="system", content=...)`
+- ✅ **已完成（2026-09-11 夜间）**，实现与提示词全文见第七节
 - 提示词内容参考：本产品 PRD 的五场景要求（证据绑定、逻辑错位标记、人工复核降级）
   + 审计署公文写作规范；GitHub 上 `audit-writing` 类 skill 大概率无高质量现成件，
   建议自行编写
@@ -152,3 +153,45 @@ HEAD: 需要接手方自己跑 git log --oneline -3 确认
 
 ---
 **接手建议顺序**：读本文件 → 跑一次三套测试确认基线 → 修 UI 两处布局（第三节）→ 按用户优先级做 Q1（角色）或 Q4（起草）→ 其余见第四、二节。
+
+---
+
+## 七、夜间进展（2026-09-11 晚 · 第二次交接）
+
+### 7.1 已完成：审计领域 system prompt 接线（= Q7 待办 1/2/3）
+
+| 文件 | 改动 |
+|---|---|
+| `app/quality/prompts.py` | **重写**：`PROMPT_VERSION=quality-v2`；新增 `ROLE_PROMPT` / `HARD_RULES` / `AUDIT_WRITING_RULES` / `CAPABILITY_PROMPTS` / `BOUNDARY_PROMPT`；`build_system_prompt()` 组装出 `SYSTEM_PROMPT`。原 CHECK/REWRITE/COMPARE/REVIEW/JUDGE 五个常量全部并入 prompt —— **不再是死代码** |
+| `app/agent/loop.py` | `AgentRunner(..., system_prompt=...)`；在 user 消息前注入 `ModelMessage(role="system", ...)`；新增 `_conversation_length()`，system 是固定开销、不占 `max_messages` 预算（否则 `max_messages=3` 这类边界测试会静默少跑一轮工具） |
+| `app/agent/router.py` | `get_runner()` 传入 `SYSTEM_PROMPT`（真实 API 路径唯一入口） |
+| `tests/unit/test_audit_prompt.py` | 新增 5 个测试：system 注入位置、无 prompt 时保持原样、不占消息预算、五个能力常量必须出现在 prompt（反死代码回归）、prompt 覆盖后端硬校验字段 |
+| `tests/integration/test_chat.py` | 新增 1 个测试：`POST /api/chat` 的首条消息必须是审计 system prompt |
+
+**提示词内容**（对齐后端真实校验，不是泛泛的“写好一点”）：
+
+- 6 条硬约束：evidence 必须是正文精确切片且 offset 对齐；summary 计数自洽；`logical_mismatch` 强制 `human_review_required=true`；对比 change 必须双版本绑定；只建议不改稿；citation 必须可核验
+- 8 条审计文书写作规范：证据可溯源、金额/日期/单位精确、责任主体明确、五层信息不越级（行为事实 < 主张 < 证据载明 < 评价推论 < 有权认定）、逻辑链条完整、结论与建议对应、不得编造法规文号金额、表述克制
+- 边界与降级：不越权定性、证据不足即标记待确认、检索不到就直说
+
+**参考来源（GitHub 检索结论）**：审计领域**没有**高质量现成 skill；最接近的是
+[`katejianglaw/refine-legal-chinese`](https://github.com/katejianglaw/refine-legal-chinese)（中文法务写作 skill：SKILL.md + `references/` 分层加载、通用 guardrails、quality checklist、一票否决条件）。
+本次结构参考其思路，规则内容按审计文书与后端真实校验重写；**未写入未经核验的法条编号**（prompt 里明确要求法规名称/条款号只能来自知识库或用户材料）。
+
+**测试基线**：`uv run pytest tests/unit tests/integration tests/evaluation -q` → **192 passed, 1 skipped**（改动前 186，新增 6）。
+
+**生效条件**：后端需重启（当前 127.0.0.1:8000 进程未开 `--reload`，改动不会热加载）。
+
+### 7.2 待决策：「语义对比」是误称（**未动手，等确认**）
+
+`app/quality/router.py:83-91` 实际是 `difflib.SequenceMatcher` 逐行 diff，`comparison_type` 只影响
+摘要文案（`_COMPARISON_TYPE_LABELS`），semantic / requirements / standards 三个选项行为完全相同。
+
+| 方案 | 工作量 | 效果 |
+|---|---|---|
+| A 诚实改名 | ~10 分钟 | UI 下拉与摘要改为「文本差异对比」，不再宣称语义能力；零风险，但演示卖点变弱 |
+| B 真做语义对比 | 2–4 小时 | 接 provider 让模型识别「改写但语义等价」的段落，provider 不可用时回退 difflib；需新增输出 schema、成本/超时控制、前端展示调整 |
+
+### 7.3 顺手发现（未处理）
+
+- `ruff check app tests` 现存 3 个**改动前就有**的报错：`tests/integration/test_quality_bound_source.py` 里 `text` / `Session` / `Finding` 三个未使用导入。与本次改动无关，未擅自修改。
