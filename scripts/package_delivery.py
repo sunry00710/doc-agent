@@ -109,7 +109,7 @@ def main() -> int:
     files = collect_files()
     # 防回归：交付面文档必须进包（中文文件名的编码问题曾导致它们被静默漏掉）
     required = [
-        "docs/文档导航.md", "docs/使用手册.md", "docs/部署指南.md", "docs/开发指南.md",
+        "docs/先阅读-从这里开始.md", "docs/使用手册.md", "docs/部署指南.md", "docs/开发指南.md",
         "docs/架构说明.md", "docs/运维手册.md", "docs/多角色迁移方案.md",
         "docs/交付记录-2026-09-11.md", "README.md",
     ]
