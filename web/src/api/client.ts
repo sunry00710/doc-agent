@@ -22,8 +22,9 @@ export type KnowledgeSpace = { id: string; kind: string; owner_id: string | null
 export type SearchHit = { chunk_id: string; document_id: string; version_id: string; title: string; heading_path: string[]; quote: string; start_offset: number; end_offset: number }
 export type IngestResult = { document_id: string; space_id: string; version_id: string; state: string }
 export type Promotion = { id: string; version_id: string; target_space_id: string; requested_by: string; reviewed_by: string | null; status: string; quality_status: string; findings: Record<string, unknown>[]; policy_version: string; authority_level: number; public_authority: boolean; document_title?: string | null; version_number?: number | null; can_govern?: boolean }
-export type ComparisonChange = { category: string; summary: string; version_a_id: string; version_b_id: string; citations: string[] }
-export type Comparison = { version_a_id: string; version_b_id: string; changes: ComparisonChange[]; summary: string; citations: string[] }
+export type ComparisonChange = { category: string; summary: string; old_text?: string; new_text?: string; impact?: string; semantic_equivalent?: boolean | null; version_a_id: string; version_b_id: string; citations: string[] }
+export type ComparisonEngine = 'llm' | 'heuristic' | 'difflib'
+export type Comparison = { version_a_id: string; version_b_id: string; comparison_type: string; engine: ComparisonEngine; degraded: boolean; degraded_reason?: string | null; truncated: boolean; changes: ComparisonChange[]; summary: string; citations: string[] }
 
 type RequestOptions = Omit<RequestInit, 'body'> & { body?: unknown }
 

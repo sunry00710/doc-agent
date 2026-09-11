@@ -317,7 +317,32 @@ h1, h2, p { margin-top: 0; }
 /* 版本对比 */
 .compare-form { display: grid; gap: .7rem; }
 .compare-form button { justify-self: start; }
-.comparison-result { display: grid; gap: .4rem; padding: .9rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--surface); box-shadow: var(--card-shadow); }
+.comparison-result { display: grid; gap: .6rem; padding: 1rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--surface); box-shadow: var(--card-shadow); }
+.comparison-headline { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
+.comparison-headline strong { font-size: .95rem; line-height: 1.5; overflow-wrap: anywhere; }
+.engine-badge { flex: none; padding: .22rem .6rem; border-radius: 999px; border: 1px solid transparent; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+.engine-model { color: var(--primary); background: var(--primary-soft); border-color: #cfe2fb; }
+.engine-offline { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-border); }
+.engine-degraded { color: var(--danger); background: var(--danger-bg); border-color: #f5cdd2; }
+.comparison-engine-note { margin: 0; font-size: .8rem; line-height: 1.6; color: var(--text-muted); overflow-wrap: anywhere; }
+.comparison-warning { margin: 0; padding: .55rem .75rem; border: 1px solid var(--warn-border); border-radius: var(--radius-small); background: var(--warn-bg); color: var(--warn-text); font-size: .82rem; line-height: 1.7; overflow-wrap: anywhere; }
+.comparison-changes { display: grid; gap: .6rem; }
+.comparison-change { display: grid; gap: .45rem; padding: .85rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--surface-alt); }
+.comparison-change-head { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }
+.change-badge { padding: .2rem .55rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: .75rem; font-weight: 700; white-space: nowrap; }
+.change-badge.change-addition, .change-badge.change-semantic_rewrite { color: var(--success); background: var(--success-bg); border-color: #cbe7d3; }
+.change-badge.change-deletion { color: var(--danger); background: var(--danger-bg); border-color: #f5cdd2; }
+.change-badge.change-data_change, .change-badge.change-tone_change { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-border); }
+.change-chip { padding: .15rem .5rem; border: 1px solid #cbe7d3; border-radius: 999px; background: var(--success-bg); color: var(--success); font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.change-chip-warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn-text); }
+.change-summary { margin: 0; font-size: .9rem; line-height: 1.65; overflow-wrap: anywhere; }
+.change-impact { margin: 0; font-size: .8rem; line-height: 1.6; color: var(--text-muted); overflow-wrap: anywhere; }
+.change-fragments { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .5rem; }
+.change-fragment { display: grid; gap: .25rem; min-width: 0; padding: .55rem .7rem; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--surface); }
+.change-fragment-old { border-color: #f2d5d0; background: #fdf6f5; }
+.change-fragment-new { border-color: #cbe7d3; background: #f4fbf6; }
+.change-fragment span { font-size: .72rem; font-weight: 700; color: var(--text-muted); letter-spacing: .04em; }
+.change-fragment pre { margin: 0; font-family: inherit; font-size: .85rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* 上传新版本 */
 .upload-version { display: grid; gap: .5rem; padding: .9rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-small); background: var(--surface); }

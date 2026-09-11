@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import difflib
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,7 +17,9 @@ from app.documents.storage import FileStorage
 from app.identity.models import User
 from app.identity.router import get_current_user
 from app.projects.permissions import ProjectAction, require_project_permission
+from app.providers.base import ModelProvider
 from app.quality.compare import compare_documents
+from app.quality.comparison import compare_sources
 from app.quality.contracts import (
     ContractRead,
     ContractRevisionInput,
@@ -28,18 +29,9 @@ from app.quality.contracts import (
     create_revision,
 )
 from app.quality.models import WritingContract, WritingContractRevision
-from app.quality.schemas import ComparisonResult
 from app.quality.supervisor import SupervisorSimulation, simulate_supervisor_review
 
 router = APIRouter(prefix="/api/quality", tags=["quality"])
-
-_COMPARISON_TYPE_LABELS = {
-    "semantic": "语义",
-    "requirements": "要求",
-    "version": "版本",
-    "precedent": "先例",
-    "standards": "标准",
-}
 
 
 class ComparisonRequest(BaseModel):
@@ -53,9 +45,21 @@ class ComparisonRequest(BaseModel):
 class ComparisonResponse(BaseModel):
     version_a_id: UUID
     version_b_id: UUID
+    comparison_type: str
+    #: 实际使用的引擎：llm=真实模型语义对比，heuristic=离线启发式，difflib=逐行回退
+    engine: Literal["llm", "heuristic", "difflib"]
+    degraded: bool = False
+    degraded_reason: str | None = None
+    truncated: bool = False
     changes: list[dict]
     summary: str
     citations: list[str]
+
+
+def get_comparison_provider(request: Request) -> ModelProvider | None:
+    """对比引擎使用与 Agent 对话同一个 provider；缺失时由引擎回退。"""
+    provider = getattr(request.app.state, "agent_provider", None)
+    return provider if isinstance(provider, ModelProvider) else None
 
 
 @router.post("/comparisons", response_model=ComparisonResponse)
@@ -64,6 +68,7 @@ def compare_versions(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[FileStorage, Depends(get_storage)],
+    provider: Annotated[ModelProvider | None, Depends(get_comparison_provider)],
 ) -> ComparisonResponse:
     if data.version_a_id == data.version_b_id:
         raise AppError("validation_error", "Comparison requires two different versions", 422)
@@ -78,22 +83,27 @@ def compare_versions(
     require_project_permission(UUID(document_b.project_id), ProjectAction.view, user, session)
     source_a = read_version(session, storage, UUID(document_a.id), version_a.number, user).decode("utf-8")
     source_b = read_version(session, storage, UUID(document_b.id), version_b.number, user).decode("utf-8")
-    label = _COMPARISON_TYPE_LABELS.get(data.comparison_type, data.comparison_type)
-    changes = []
-    matcher = difflib.SequenceMatcher(a=source_a.splitlines(), b=source_b.splitlines())
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            continue
-        category = {"insert": "addition", "delete": "deletion", "replace": "modification"}[tag]
-        old = "\\n".join(source_a.splitlines()[i1:i2])
-        new = "\\n".join(source_b.splitlines()[j1:j2])
-        summary = f"删除：{old}" if tag == "delete" else f"新增：{new}" if tag == "insert" else f"由“{old}”修改为“{new}”"
-        changes.append({"category": category, "summary": summary, "version_a_id": str(data.version_a_id), "version_b_id": str(data.version_b_id), "citations": []})
-    if not changes:
-        changes.append({"category": "unchanged", "summary": "两个版本内容一致", "version_a_id": str(data.version_a_id), "version_b_id": str(data.version_b_id), "citations": []})
-    result = {"changes": changes, "summary": f"{label}对比已完成，共发现 {len(changes)} 项变化", "citations": []}
-    validated = compare_documents(ComparisonResult.model_validate(result), str(data.version_a_id), str(data.version_b_id))
-    return ComparisonResponse(version_a_id=data.version_a_id, version_b_id=data.version_b_id, **validated.model_dump())
+    outcome = compare_sources(
+        source_a,
+        source_b,
+        data.comparison_type,
+        str(data.version_a_id),
+        str(data.version_b_id),
+        provider,
+    )
+    validated = compare_documents(
+        outcome.result, str(data.version_a_id), str(data.version_b_id)
+    )
+    return ComparisonResponse(
+        version_a_id=data.version_a_id,
+        version_b_id=data.version_b_id,
+        comparison_type=data.comparison_type,
+        engine=outcome.engine,
+        degraded=outcome.degraded,
+        degraded_reason=outcome.degraded_reason,
+        truncated=outcome.truncated,
+        **validated.model_dump(),
+    )
 
 
 @router.get("/documents/{document_id}/contract", response_model=ContractRead)

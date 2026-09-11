@@ -53,7 +53,17 @@ export const zhCN = {
     addition: '新增',
     deletion: '删除',
     modification: '修改',
+    semantic_rewrite: '语义改写',
+    data_change: '数据变化',
+    structure_change: '结构调整',
+    tone_change: '语气变化',
+    comment_response: '批注回应',
     unchanged: '无变化',
+  },
+  comparisonEngine: {
+    llm: '语义对比 · 模型',
+    heuristic: '本地启发式 · 未接入模型',
+    difflib: '逐行差异 · 已降级',
   },
 } as const
 

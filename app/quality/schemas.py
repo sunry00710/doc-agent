@@ -74,6 +74,11 @@ class ComparisonChange(BaseModel):
 
     category: str
     summary: str
+    # 语义对比补充信息：原文片段、影响说明，以及改动前后是否语义等价
+    old_text: str = ""
+    new_text: str = ""
+    impact: str = ""
+    semantic_equivalent: bool | None = None
     version_a_id: str
     version_b_id: str
     citations: list[str] = Field(default_factory=list)

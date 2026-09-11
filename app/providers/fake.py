@@ -31,13 +31,18 @@ def _core_term(query: str) -> str:
 
 
 class FakeProvider(ModelProvider):
-    """Deterministic offline provider that records every completion request."""
+    """Deterministic provider that records every completion request.
+
+    无脚本（``responses is None``）时进入离线演示模式，此时 ``offline=True``：
+    语义分析类任务会走本地启发式而不是假装调用了模型。带脚本时它是真实模型的测试替身。
+    """
 
     def __init__(
         self, responses: Iterable[AssistantMessage | CompletionResult | Exception] | None = None
     ) -> None:
         self.responses = deque(responses) if responses is not None else deque()
         self._demo_mode = responses is None
+        self.offline = self._demo_mode
         self.requests: list[CompletionRequest] = []
 
     def complete(self, request: CompletionRequest) -> CompletionResult:

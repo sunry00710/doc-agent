@@ -60,6 +60,9 @@ class ProviderError(Exception):
 
 
 class ModelProvider(ABC):
+    #: 离线演示 provider 置 True：没有真实模型质量，不能承担语义分析类任务。
+    offline: bool = False
+
     @abstractmethod
     def complete(self, request: CompletionRequest) -> CompletionResult:
         """Produce one model completion."""

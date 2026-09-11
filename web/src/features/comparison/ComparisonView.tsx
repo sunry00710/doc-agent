@@ -2,18 +2,64 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { displayError, displayLabel, zhCN } from '../../app/strings'
 import { api } from '../../api/client'
-import type { ApiError, DocumentVersion } from '../../api/client'
+import type { ApiError, Comparison, ComparisonChange, DocumentVersion } from '../../api/client'
 
 const MODE_LABELS: Record<string, string> = {
   semantic: '语义对比',
   requirements: '要求对比',
+  version: '版本对比',
+  standards: '标准对比',
+  precedent: '先例对比',
+}
+
+// 引擎文案必须如实描述结果是怎么来的：离线启发式与降级回退都不得暗示模型参与了分析。
+const ENGINE_DETAILS: Record<string, string> = {
+  llm: '由真实模型做语义分析，可识别「改写但语义等价」的段落。',
+  heuristic: '当前为离线演示模式（本地 FakeProvider）：结果是段落比对 + 相似度判定，不是模型能力。',
+  difflib: '未使用语义分析，本次为逐行文本差异。',
+}
+
+const DEGRADED_REASONS: Record<string, string> = {
+  provider_not_configured: '未配置真实模型（MODEL_PROVIDER=fake）。配置 MODEL_PROVIDER=self 或 internal 后自动启用语义对比。',
+  provider_unavailable: '模型服务暂时不可用（超时或网络错误），已回退为逐行差异，可稍后重试。',
+  provider_invalid_response: '模型返回的结果无法解析，已回退为逐行差异。',
+  provider_offline: '当前为离线演示模型，本功能需要真实模型。',
+}
+
+function engineTone(engine: string) {
+  if (engine === 'llm') return 'model'
+  if (engine === 'difflib') return 'degraded'
+  return 'offline'
+}
+
+function ChangeCard({ change }: { change: ComparisonChange }) {
+  return <article className="comparison-change">
+    <header className="comparison-change-head">
+      <span className={`change-badge change-${change.category}`}>{displayLabel(zhCN.comparisonCategory, change.category)}</span>
+      {change.semantic_equivalent === true && <span className="change-chip">语义等价</span>}
+      {change.semantic_equivalent === false && ['modification', 'semantic_rewrite', 'tone_change'].includes(change.category)
+        && <span className="change-chip change-chip-warn">语义已变</span>}
+    </header>
+    <p className="change-summary">{change.summary}</p>
+    {change.impact && <p className="change-impact">影响：{change.impact}</p>}
+    {(change.old_text || change.new_text) && <div className="change-fragments">
+      {change.old_text && <div className="change-fragment change-fragment-old">
+        <span>旧版原文</span>
+        <pre>{change.old_text}</pre>
+      </div>}
+      {change.new_text && <div className="change-fragment change-fragment-new">
+        <span>新版原文</span>
+        <pre>{change.new_text}</pre>
+      </div>}
+    </div>}
+  </article>
 }
 
 export function ComparisonView({ token, versions }: { token: string; versions: DocumentVersion[] }) {
   const [a, setA] = useState('')
   const [b, setB] = useState('')
   const [mode, setMode] = useState('semantic')
-  const [result, setResult] = useState<{ version_a_id: string; version_b_id: string; summary: string; changes: { version_a_id: string; version_b_id: string; summary: string; category: string }[] } | null>(null)
+  const [result, setResult] = useState<Comparison | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -57,6 +103,7 @@ export function ComparisonView({ token, versions }: { token: string; versions: D
   }
 
   const label = (version: DocumentVersion) => `v${version.number}（${new Date(version.created_at).toLocaleDateString('zh-CN')}）`
+  const visibleChanges = result ? result.changes.filter((change) => change.version_a_id === a && change.version_b_id === b) : []
 
   return <section className="feature-panel">
     <p className="eyebrow">版本对比</p>
@@ -70,16 +117,29 @@ export function ComparisonView({ token, versions }: { token: string; versions: D
           {versions.map((version) => <option key={version.id} value={version.id}>{label(version)}</option>)}
         </select></label>
         <label>对比方式<select value={mode} onChange={(event) => setMode(event.target.value)}>
-          <option value="semantic">语义对比</option>
-          <option value="requirements">要求对比</option>
+          {Object.entries(MODE_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
         </select></label>
       </div>
       <button type="submit" disabled={!a || !b || a === b || busy}>{busy ? '对比中…' : '开始对比'}</button>
     </form>
     {error && <p className="error" role="alert">{error}</p>}
-    {result && <article className="comparison-result">
-      <strong>{result.summary}</strong>
-      {result.changes.filter((change) => change.version_a_id === a && change.version_b_id === b).map((change, index) => <p key={index}><b>{displayLabel(zhCN.comparisonCategory, change.category)}</b> {change.summary}</p>)}
-    </article>}
+    {result && <div className="comparison-result">
+      <div className="comparison-headline">
+        <strong>{result.summary}</strong>
+        <span className={`engine-badge engine-${engineTone(result.engine)}`}>
+          {displayLabel(zhCN.comparisonEngine, result.engine)}
+        </span>
+      </div>
+      <p className="comparison-engine-note">{ENGINE_DETAILS[result.engine] ?? ''}</p>
+      {result.degraded && <p className="comparison-warning" role="status">
+        {DEGRADED_REASONS[result.degraded_reason ?? ''] ?? '语义对比未能完成，已回退为逐行差异。'}
+      </p>}
+      {result.truncated && <p className="comparison-warning" role="status">
+        正文较长，仅对比了开头部分，结论可能不完整。
+      </p>}
+      <div className="comparison-changes">
+        {visibleChanges.map((change, index) => <ChangeCard key={`${change.category}-${index}`} change={change} />)}
+      </div>
+    </div>}
   </section>
 }

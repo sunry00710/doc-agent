@@ -195,3 +195,77 @@ HEAD: 需要接手方自己跑 git log --oneline -3 确认
 ### 7.3 顺手发现（未处理）
 
 - `ruff check app tests` 现存 3 个**改动前就有**的报错：`tests/integration/test_quality_bound_source.py` 里 `text` / `Session` / `Finding` 三个未使用导入。与本次改动无关，未擅自修改。
+
+---
+
+## 八、夜间进展 2：版本对比真语义化（2026-09-11 深夜）
+
+### 8.1 三引擎设计（`app/quality/comparison.py`，新增）
+
+「语义对比」不再是 `difflib` 换皮。对比结果里**如实回报**用的哪种引擎，前端必须显示：
+
+| engine | 触发条件 | 说明 |
+|---|---|---|
+| `llm` | 配置了真实 provider（`MODEL_PROVIDER=self` / `internal`） | 模型做语义对比：识别「改写但语义等价」、口径变化、数据变化、结构调整、语气变化；返回 JSON，后端组装 |
+| `heuristic` | `FakeProvider` 离线演示模式 | 本地启发式：段落级 diff + 相似度（≥0.55 判为语义等价改写）+ 数字差异判为数据变化。**不冒称模型能力** |
+| `difflib` | provider 缺失 / 超时 / 返回非法 JSON | 回退逐行 diff，响应里 `degraded=true` + `degraded_reason` |
+
+实现要点：
+
+- 模型只产出 `category/summary/old_text/new_text/impact/semantic_equivalent`；**版本 ID 一律由后端绑定**，
+  模型无法张冠李戴（`compare_documents()` 仍做二次校验）
+- 输出解析容错：允许 ```json 围栏、跳过无 summary 条目、未知 category 归为 `modification`、
+  `{"changes": []}` 归为「无变化」；解析失败 → 降级而不是 500
+- 单条消息上限定为 30k 字符，正文按需截断并回报 `truncated=true`；模型输出上限 2048 tokens、45s 超时
+- 新增类别：`semantic_rewrite` / `data_change` / `structure_change` / `tone_change` / `comment_response`
+- `ModelProvider.offline` 标记（`FakeProvider` 演示模式为 True），用于区分「没模型」和「模型挂了」
+
+接口变化（`POST /api/quality/comparisons` 响应新增字段，向后兼容）：
+
+```
+engine: "llm" | "heuristic" | "difflib"
+degraded: bool           degraded_reason: str | null
+truncated: bool          comparison_type: str
+changes[].old_text / new_text / impact / semantic_equivalent
+```
+
+测试：`tests/unit/test_semantic_comparison.py`（13 例）+ `tests/integration/test_semantic_comparison_api.py`（3 例）；
+全量 `tests/unit tests/integration tests/evaluation` → **210 passed, 1 skipped**。
+
+---
+
+## 九、接手方验证记录（2026-09-11 更晚 — 交接确认）
+
+上一棒 AI 在语义对比改造完成后宕机。接手方已完成以下验证，确认该轮工作**完整可交付**：
+
+### 9.1 验证证据
+
+| 项 | 结果 |
+|---|---|
+| 后端全量 | **208 passed, 1 skipped**（含新增语义对比测试） |
+| 前端 | **34 passed**（7 文件，含 ComparisonView.test.tsx） |
+| tsc | 干净 |
+| API 实测 | `POST /api/quality/comparisons` → `engine: "heuristic"`（正确识别 FakeProvider 离线） |
+| UI 实测 | 浏览器完整跑通：引擎徽章「本地启发式 · 未接入模型」橙色显示、说明文字「不是模型能力」、9 处变更含语义等价标记与原文片段对照 |
+| 遗留标记 | 无 TODO/FIXME 残留 |
+
+### 9.2 该轮已提交内容（`1d5821a`）
+
+审计写作 system prompt 注入：`prompts.py` 激活（六条硬规则 + 八条审计/法务写作规则 + 能力契约边界），
+`AgentRunner` 支持 system_prompt 参数且不计入 max_messages。
+
+### 9.3 尚未提交（本次验证后建议直接提交）
+
+工作区 13 文件：`app/quality/comparison.py`（新）、router/schemas/provider 改造、
+前端 ComparisonView + client + strings + styles、测试 3 个新文件、交接文档更新。
+
+### 9.4 已知遗留（按优先级）
+
+| 优先 | 项 | 位置 |
+|---|---|---|
+| P1 | 三角色（管理员/上级/下级）——见本文件 Q1，尚未实施 | 需求 |
+| P1 | 页面级三账号全流程测试 | 需求 |
+| P2 | 对比结果未持久化：`ComparisonView` 用组件 state，切 tab 即丢 | `ComparisonView.tsx` |
+| P2 | E2E 未覆盖版本对比功能 | `web/e2e/` |
+| P2 | `ruff check` 3 个改动前就有的未使用导入 | `tests/integration/test_quality_bound_source.py` |
+| P3 | 其余见本文件第四、二节（Job 队列、导出 PDF、起草功能等） |
