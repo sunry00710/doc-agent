@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "quality-v2"
+PROMPT_VERSION = "quality-v3"
 
 ROLE_PROMPT = (
     "你是审计文书质量助手，服务对象是审计机关的项目负责人、主审与复核人员。"
@@ -74,12 +74,20 @@ JUDGE_PROMPT = (
     "逻辑错位、证据与结论不匹配等结论性风险必须标记为需人工复核。"
 )
 
+DRAFT_PROMPT = (
+    "起草（draft_document）：按用户要求起草新文档正文，返回标题与完整正文文本；"
+    "起草内容只能来自用户提供的事实与知识库检索结果，不得编造法规条款、金额与文号；"
+    "产物是草稿文本本身，不会直接写入项目文档——是否保存由用户在界面上确认，"
+    "因此不得声称“已创建文档”或“已保存”。"
+)
+
 CAPABILITY_PROMPTS: dict[str, str] = {
     "check_document": CHECK_PROMPT,
     "rewrite_suggestion": REWRITE_PROMPT,
     "compare_documents": COMPARE_PROMPT,
     "review_comments": REVIEW_PROMPT,
     "judge_document": JUDGE_PROMPT,
+    "draft_document": DRAFT_PROMPT,
 }
 
 BOUNDARY_PROMPT = (
@@ -116,6 +124,7 @@ __all__ = [
     "CAPABILITY_PROMPTS",
     "CHECK_PROMPT",
     "COMPARE_PROMPT",
+    "DRAFT_PROMPT",
     "HARD_RULES",
     "JUDGE_PROMPT",
     "PROMPT_VERSION",

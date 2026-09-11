@@ -78,7 +78,7 @@ def contract_read(contract: WritingContract, revision: WritingContractRevision) 
     )
 
 
-def _get_document(session: Session, document_id: UUID, user: User) -> Document:
+def get_contract_document(session: Session, document_id: UUID, user: User) -> Document:
     document = session.get(Document, str(document_id))
     if document is None:
         raise AppError("not_found", "Document not found", 404)
@@ -87,7 +87,7 @@ def _get_document(session: Session, document_id: UUID, user: User) -> Document:
 
 
 def create_contract(session: Session, document_id: UUID, data: ContractRevisionInput, user: User) -> ContractRead:
-    document = _get_document(session, document_id, user)
+    document = get_contract_document(session, document_id, user)
     if session.scalar(select(WritingContract).where(WritingContract.document_id == str(document_id))) is not None:
         raise AppError("conflict", "Writing contract already exists", 409)
     contract = WritingContract(project_id=document.project_id, document_id=str(document_id), created_by=str(user.id))

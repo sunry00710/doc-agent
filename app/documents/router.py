@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.db.session import get_db
+from app.documents.models import Document
 from app.documents.schemas import DocumentCreate, DocumentRead, DocumentVersionRead
 from app.documents.service import (
     create_document,
@@ -19,6 +20,7 @@ from app.documents.service import (
 from app.documents.storage import FileStorage
 from app.identity.models import User
 from app.identity.router import get_current_user
+from app.knowledge.ingestion_queue import enqueue_ingestion
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -78,6 +80,10 @@ def upload(
     try:
         content = read_upload_content(file.file, storage.max_upload_bytes)
         version = create_version(session, storage, document_id, content, current_user, file.filename)
+        # 与版本同一事务入队：提交失败则 Job 一并回滚，不会留下指向不存在版本的索引任务
+        document = session.get(Document, version.document_id)
+        if document is not None:
+            enqueue_ingestion(session, version.id, document.project_id, current_user)
     except ValueError as exc:
         raise AppError("validation_error", "Invalid document upload", 422) from exc
     try:

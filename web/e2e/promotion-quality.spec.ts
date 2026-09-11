@@ -29,14 +29,20 @@ async function login(page: Page, username: string) {
   await expect(page.getByText('Doc Agent').first()).toBeVisible()
 }
 
+// 侧栏按钮必须限定在「主导航」内：全局 reviewer 现在也有「知识库治理」，
+// 裸 getByRole('button', { name: '知识库' }) 会同时命中「知识库」和「知识库治理」
+function nav(page: Page, name: string) {
+  return page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name, exact: true })
+}
+
 async function selectVersion(page: Page, title: string) {
-  await page.getByRole('button', { name: '文档', exact: true }).click()
+  await nav(page, '文档').click()
   await page.getByRole('button', { name: title }).click()
   await page.locator('.version-list button').first().click()
 }
 
 async function requestPromotion(page: Page) {
-  await page.getByRole('button', { name: '知识库' }).click()
+  await nav(page, '知识库').click()
   await page.getByRole('button', { name: /申请晋升/ }).click()
   const target = page.getByLabel('目标知识空间')
   await target.selectOption({ index: 1 })
@@ -49,7 +55,7 @@ function promotionRow(page: Page, title: string) {
 
 test('author sees blocked and human-review promotion policies', async ({ page }) => {
   await login(page, fixture.author)
-  await expect(page.getByText('普通用户')).toBeVisible()
+  await expect(page.getByText('员工（下级）')).toBeVisible()
 
   await selectVersion(page, fixture.mandatoryTitle)
   await requestPromotion(page)
@@ -73,10 +79,10 @@ test('author sees blocked and human-review promotion policies', async ({ page })
 
 test('reviewer approves optional promotion and verifies retrieval', async ({ page }) => {
   await login(page, fixture.reviewer)
-  await expect(page.getByText('审核员')).toBeVisible()
-  await page.getByRole('button', { name: '知识库' }).click()
+  await expect(page.getByText('上级审核')).toBeVisible()
+  await nav(page, '知识库').click()
   await expect(page.locator('.promotion-row').getByRole('button', { name: '批准' })).toHaveCount(0)
-  await page.getByRole('button', { name: '知识库治理', exact: true }).click()
+  await nav(page, '知识库治理').click()
   const optional = promotionRow(page, fixture.optionalTitle)
   await optional.getByRole('button', { name: '批准' }).click()
   await expect(optional).toContainText('已批准')
@@ -91,14 +97,15 @@ test('reviewer approves optional promotion and verifies retrieval', async ({ pag
   })
   await expect(hit).toHaveCount(1)
   await hit.click()
-  await expect(page.getByText(fixture.optionalNeedle)).toBeVisible()
+  // 命中回跳后正文编辑器加载该版本内容（不用全页 getByText：打印层与编辑器会有两处同文）
+  await expect(page.getByRole('textbox', { name: '正文草稿' })).toHaveValue(new RegExp(fixture.optionalNeedle))
 })
 
 test('admin approves unconfirmed promotion', async ({ page }, testInfo) => {
   await login(page, fixture.admin)
   await expect(page.getByText('管理员')).toBeVisible()
-  await page.getByRole('button', { name: '管理', exact: true }).click()
-  await page.getByRole('button', { name: '知识库治理', exact: true }).click()
+  await nav(page, '管理').click()
+  await nav(page, '知识库治理').click()
   const unconfirmed = promotionRow(page, fixture.unconfirmedTitle)
   await unconfirmed.getByRole('button', { name: '批准' }).click()
   await expect(unconfirmed).toContainText('已批准')
@@ -116,8 +123,8 @@ test('reviewer confirms contract and activates approved promotion', async ({ pag
   await page.getByRole('button', { name: '确认当前修订' }).click()
   await expect(page.getByRole('heading', { name: /已确认/ })).toBeVisible()
 
-  await page.getByRole('button', { name: '知识库' }).click()
-  await page.getByRole('button', { name: '知识库治理', exact: true }).click()
+  await nav(page, '知识库').click()
+  await nav(page, '知识库治理').click()
   const unconfirmed = promotionRow(page, fixture.unconfirmedTitle)
   await unconfirmed.getByRole('button', { name: '激活索引' }).click()
   await expect(unconfirmed).toContainText('已索引')
@@ -125,8 +132,8 @@ test('reviewer confirms contract and activates approved promotion', async ({ pag
 
 test('revocation in governance removes the indexed source from search', async ({ page }) => {
   await login(page, fixture.reviewer)
-  await page.getByRole('button', { name: '知识库', exact: true }).click()
-  await page.getByRole('button', { name: '知识库治理', exact: true }).click()
+  await nav(page, '知识库').click()
+  await nav(page, '知识库治理').click()
   const optional = promotionRow(page, fixture.optionalTitle)
   await optional.getByRole('button', { name: '撤销', exact: true }).click()
   await expect(optional).toContainText('已撤销')

@@ -66,6 +66,8 @@ export class ApiClient {
   reviewPromotion(token: string, requestId: string, approved: boolean): Promise<Promotion> { return this.request(`/knowledge/promotions/${requestId}/review`, { method: 'POST', token, body: { approved } }) }
   activatePromotion(token: string, requestId: string): Promise<Promotion> { return this.request(`/knowledge/promotions/${requestId}/activate`, { method: 'POST', token }) }
   revokePromotion(token: string, requestId: string): Promise<Promotion> { return this.request(`/knowledge/promotions/${requestId}/revoke`, { method: 'POST', token }) }
+  adminUsers(token: string): Promise<User[]> { return this.request('/admin/users', { token }) }
+  adminUpdateUser(token: string, userId: string, data: { role?: User['role']; is_active?: boolean }): Promise<User> { return this.request(`/admin/users/${userId}`, { method: 'PATCH', token, body: data }) }
 
   private async requestText(path: string, options: RequestOptions & { token?: string } = {}): Promise<string> {
     const { token, headers, ...init } = options

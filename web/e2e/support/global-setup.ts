@@ -6,8 +6,6 @@ import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '../../..')
 const web = resolve(root, 'web')
-const backendPort = '8011'
-const frontendPort = '5181'
 const children: ChildProcess[] = []
 
 async function waitFor(url: string, ownedChildren: ChildProcess[] = []) {
@@ -126,6 +124,20 @@ export default async function globalSetup() {
         EMBEDDING_ENABLED: 'false',
       },
     )
+    // 上传版本改为异步入队后，E2E 必须同时拉起 worker，否则索引任务永远停留在「排队中」
+    const worker = start(
+      uv,
+      ['run', '--directory', root, 'python', 'run_worker.py'],
+      {
+        ...process.env,
+        ENVIRONMENT: 'test',
+        DATABASE_URL: `sqlite:///${database.replaceAll('\\', '/')}`,
+        STORAGE_DIR: storage,
+        MODEL_PROVIDER: 'fake',
+        JWT_SECRET: 'e2e-disposable-secret-at-least-thirty-two-bytes',
+        EMBEDDING_ENABLED: 'false',
+      },
+    )
     const frontend = start(
       npm,
       [
@@ -151,7 +163,7 @@ export default async function globalSetup() {
       ...fixture,
       baseURL: `http://127.0.0.1:${frontendPort}`,
       runRoot,
-      pids: [backend.pid, frontend.pid],
+      pids: [backend.pid, frontend.pid, worker.pid],
     })
     process.env.DOC_AGENT_ISOLATED_E2E = runtime
     await writeFile(join(runRoot, 'runtime.json'), runtime)

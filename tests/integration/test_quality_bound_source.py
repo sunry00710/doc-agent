@@ -9,8 +9,8 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
 from app.db.base import Base
@@ -18,7 +18,7 @@ from app.documents.models import Document, DocumentVersion
 from app.documents.storage import FileStorage
 from app.identity.models import Role, User
 from app.projects.models import MembershipRole, Project, ProjectMember
-from app.quality.schemas import Finding, FindingSummary, QualityResponse
+from app.quality.schemas import FindingSummary, QualityResponse
 from app.quality.tools import FindingInput, QualityInput, _resolve_source
 
 

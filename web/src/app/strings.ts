@@ -1,7 +1,7 @@
 export const zhCN = {
   role: {
-    user: '普通用户',
-    reviewer: '审核员',
+    user: '员工（下级）',
+    reviewer: '上级审核',
     admin: '管理员',
   },
   reviewState: {

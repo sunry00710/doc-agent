@@ -1,0 +1,109 @@
+# Doc Agent 架构说明（交付版）
+
+> 面向接手开发者的 30 分钟上手文档。使用操作见 `docs/demo-usage-guide.md`。
+
+## 一、技术栈与运行形态
+
+| 层 | 技术 | 说明 |
+|---|---|---|
+| 后端 | FastAPI + SQLAlchemy 2 + SQLite(WAL) + Alembic | 单进程 uvicorn (`app.main:create_app`) |
+| 后台任务 | 自研持久化队列（`app/jobs`） | 独立进程 `run_worker.py`，与后端共库 |
+| 前端 | React 19 + Vite + TypeScript | 经 Vite 代理 `/api` 同源访问后端 |
+| 检索 | SQLite FTS5（关键词）+ FastEmbed 向量（可选） | `EMBEDDING_ENABLED=false` 退回纯关键词 |
+| 模型 | Provider 抽象：fake / self / internal | OpenAI 兼容协议，配置缺失启动即报错 |
+
+进程拓扑（生产/演示一致）：`uvicorn`（API）+ `run_worker.py`（任务队列），
+两者只通过 SQLite 队列表通信，可独立重启。前端是静态资源（`npm run build` 产物）。
+
+## 二、数据流主线
+
+```
+上传版本 ──> documents.create_version（文件落盘+哈希校验+不可变版本行）
+              └─同事务─> jobs.enqueue(knowledge.ingest, 幂等键=版本ID)
+worker ──> ingestion.ingest_version（切块→FTS+向量→knowledge_generations 原子切换）
+检索 ──> knowledge.search（按空间分级鉴权过滤 → FTS/向量/混合召回）
+Agent ──> agent.AgentRunner（system prompt → 模型 → 工具调用 → trace）
+质量工具 ──> quality.*（检查/改写/对比/评审/评判/起草；版本绑定防伪造）
+评审 ──> reviews.workflow（状态机校验 + 乐观锁 workflow_revision）
+晋升 ──> knowledge.promotion（申请→批准→激活=ingest→撤销=令 generation 失效）
+```
+
+## 三、模块要点
+
+### 3.1 权限（app/projects/permissions.py + app/admin）
+
+双层模型：**全局角色** `user/reviewer/admin`（identity）与**项目角色**
+`contributor/reviewer/owner`（projects）。唯一权威校验点是
+`require_project_permission(project_id, action, user, session)`，action 枚举
+view/edit/comment/submit/review/manage_members。管理员的用户管理在 `app/admin`（admin-only），
+禁止自降级与移除最后一个管理员（`app/admin/router.py::update_user`）。
+
+### 3.2 任务队列（app/jobs）
+
+- `enqueue`：幂等（owner+type+key 唯一），payload 必须是 Pydantic 模型；`_job_context` 为 worker 保留。
+- `Worker.run_once`：claim → 执行 → 心跳线程；失败分可重试（`RetryableJobError`）与永久失败；
+  stale 任务由 `recover_stale_jobs` 回收。SQLite 锁竞争有内建 backoff。
+- **生产端唯一入口**：`POST /api/documents/{id}/versions`（`app/knowledge/ingestion_queue.py`）；
+  另有两个同步调用点在 knowledge router（个人库收入）与 promotion（激活晋升），
+  属于用户显式动作，保持同步语义。
+
+### 3.3 质量模块（app/quality）
+
+| 文件 | 职责 |
+|---|---|
+| `tools.py` | 六个工具注册：check / rewrite / compare / review / judge / **draft**（非 mutating） |
+| `check.py` `judge.py` `rewrite.py` | 证据切片校验、summary 自洽、区间去重（judge 复用 check 的规范化） |
+| `compare.py` | 对比结果的双版本绑定校验（**仅校验**） |
+| `comparison.py` | 三引擎对比：llm（模型 JSON）/ heuristic（离线启发式）/ difflib（降级），如实回报 engine |
+| `prompts.py` | system prompt 组装（`PROMPT_VERSION=quality-v3`），硬规则与工具校验一一对应 |
+| `contracts.py` `gates.py` `supervisor.py` | 写作契约、质量门、主管视角模拟 |
+
+**版本绑定**是贯穿性设计：模型传入的 source 被会话绑定的版本正文覆盖
+（`tools.py::_bound_source`），对比 change 必须绑定请求中的双版本 ID，防止模型张冠李戴。
+
+### 3.4 知识库（app/knowledge）
+
+- 空间四级：personal / project / shared / standard；鉴权集中在 `search.py` 与 `_authorize_knowledge_space`。
+- 索引以 generation 为单位原子切换（building → active），失败不破坏旧索引。
+- 项目空间按需惰性创建（`ingestion_queue.project_space`）。
+- 晋升治理（promotion_service）控制「个人草稿 → 共享库」的合规流转，进入共享库前必须
+  人工批准（质量门 findings 作为决策材料）。
+
+### 3.5 前端（web/src）
+
+- `app/App.tsx` 是壳：token、项目、文档、版本、引用、任务状态与 hash 路由；
+  API 客户端 `api/client.ts` 统一错误信封与 401 处理（广播 `doc-agent-auth-expired`）。
+- 会话恢复：选中项目/文档/版本、Agent 对话、草稿、对比结果都在 sessionStorage（按用户隔离）。
+- 功能工作面在 `features/*`，各自独立取数与渲染；权限只控制入口显隐，不做安全假设。
+
+## 四、关键机制速查
+
+| 机制 | 位置 | 一句话 |
+|---|---|---|
+| 不可变版本 | `documents/models.py`（before_update 钩子） | 版本改写直接抛错，改稿=新版本 |
+| 确认-执行 | `agent/tools.py` | mutating 工具必须 confirmed+幂等键；幂等存储挂应用级 registry（跨请求） |
+| 文件事务补偿 | `documents/service.py`（after_commit/after_soft_rollback） | 事务回滚自动删已落盘文件 |
+| 错误信封 | `core/errors.py` + `main.py` | 统一 `{error:{code,message,request_id,retryable}}`，code 稳定 |
+| 乐观锁 | `reviews/service.py` | 条件 UPDATE 基于 workflow_revision |
+| 引擎如实回报 | `quality/comparison.py` | 离线/降级绝不冒称模型能力，前端强制展示 engine 徽章 |
+
+## 五、测试版图
+
+| 层 | 位置 | 说明 |
+|---|---|---|
+| 单元 | `tests/unit/` | 工具校验、prompt 接线、语义对比启发式 |
+| 集成 | `tests/integration/` | API + 真实 SQLite（部分用例跑 alembic 迁移含 FTS 虚拟表） |
+| 评估 | `tests/evaluation/` | 质量门/契约策略回归 |
+| E2E | `web/e2e/` | Playwright 自起隔离环境（临时库+独立端口+worker 进程），含三账号权限隔离与对比持久化 |
+
+约定：集成测试建库时 FTS 虚拟表不在 `Base.metadata`，需要手动
+`CREATE VIRTUAL TABLE knowledge_chunks_fts ...`（见 `tests/integration/test_ingestion_queue.py`）。
+
+## 六、扩展点
+
+- **接真实模型**：`.env` 配 `MODEL_PROVIDER=self|internal` + endpoint/key/model；语义对比自动启用 llm 引擎。
+- **加质量工具**：`quality/tools.py` 注册 + `prompts.py` 的 `CAPABILITY_PROMPTS` 补一条
+  （`tests/unit/test_audit_prompt.py` 有反死代码回归：五个能力常量必须在 prompt 中出现）。
+- **加任务类型**：实现 `JobHandler` → `run_worker.py::build_registry` 注册 → 生产端 enqueue。
+- **换数据库**：SQLAlchemy 层未绑定 SQLite，但 FTS5 检索与部分 `PRAGMA` 是针对 SQLite 的实现，
+  迁移 PostgreSQL 时需替换检索模块（向量可迁 pgvector）。

@@ -9,7 +9,7 @@ from app.documents.router import get_storage
 from app.documents.storage import FileStorage
 from app.identity.models import User
 from app.identity.router import get_current_user
-from app.knowledge.embeddings import FastEmbedProvider
+from app.knowledge.embeddings import embedding_provider_from_settings
 from app.knowledge.promotion_schemas import (
     PromotionCreate,
     PromotionRead,
@@ -63,8 +63,7 @@ def activate(
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[FileStorage, Depends(get_storage)],
 ) -> PromotionRead:
-    settings = request.app.state.settings
-    provider = FastEmbedProvider(model_name=settings.embedding_model) if settings.embedding_enabled else None
+    provider = embedding_provider_from_settings(request.app.state.settings)
     result = activate_promotion(session, request_id, storage, user, embedding_provider=provider)
     session.commit()
     return result

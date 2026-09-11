@@ -5,7 +5,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.identity.models import Role, User
+from app.identity.models import User
+from app.identity.roles import is_admin
 from app.projects.models import MembershipRole, Project, ProjectMember
 from app.projects.permissions import ProjectAction, require_project_permission
 
@@ -43,7 +44,7 @@ def add_project_member(
     membership_role: MembershipRole,
     actor: User,
 ) -> ProjectMember:
-    if actor.role is not Role.admin:
+    if not is_admin(actor):
         require_project_permission(project_id, ProjectAction.manage_members, actor, session)
     elif session.get(Project, str(project_id)) is None:
         raise AppError("not_found", "Project not found", 404)

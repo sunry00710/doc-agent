@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     internal_api_key: SecretStr = SecretStr("")
     internal_api_model: str = ""
     provider_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
-    # 语义检索向量：默认开启。离线/无模型缓存的内网环境可设 false 退回纯关键词，
-    # 此时前端 hybrid 请求会收到 degraded 标记（不再静默假装有语义检索）。
+    # 语义检索向量：默认开启。离线/无模型缓存的内网环境可设 false 退回纯关键词
+    # （检索仍可用，只是不再有向量召回；当前响应无 degraded 字段，前端不作降级提示）。
     embedding_enabled: bool = True
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
     storage_dir: Path = Path("./storage")

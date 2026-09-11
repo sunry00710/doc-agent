@@ -9,6 +9,14 @@
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# 允许 `python scripts/<name>.py` 直接运行（补齐项目根到模块搜索路径）
+if str(Path(__file__).resolve().parents[1]) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+
 import re
 from pathlib import Path
 from uuid import UUID

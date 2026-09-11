@@ -46,6 +46,7 @@ def add_document(
     source: str,
     requirement: Requirement,
     confirmed: bool,
+    revised_source: str | None = None,
 ) -> None:
     document = create_document(
         session,
@@ -63,6 +64,16 @@ def add_document(
         author,
         f"{title}.md",
     )
+    # 第二版供版本对比 E2E 使用；正文去掉/改写部分内容以便断言变更检测
+    if revised_source is not None:
+        create_version(
+            session,
+            storage,
+            UUID(document.id),
+            revised_source.encode(),
+            author,
+            f"{title}-v2.md",
+        )
     contract = create_contract(
         session,
         UUID(document.id),
@@ -175,6 +186,11 @@ def main() -> int:
             reviewer,
             title="E2E unconfirmed contract",
             source="# Unconfirmed policy\n\nE2E-UNCONFIRMED-SATISFIED",
+            revised_source=(
+                "# Unconfirmed policy\n\n"
+                "E2E-UNCONFIRMED-SATISFIED\n\n"
+                "补充：抽查发现 2 笔合同未按流程归档，责任部门应于 2026 年 10 月前完成补正。"
+            ),
             requirement=Requirement(
                 id="unconfirmed",
                 text="E2E-UNCONFIRMED-SATISFIED",

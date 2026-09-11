@@ -11,18 +11,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.admin.router import router as admin_router
 from app.agent.router import router as agent_router
+from app.agent.tools import ToolRegistry
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorEnvelope, PublicError
 from app.db.session import create_database_engine, create_session_factory
 from app.documents.router import router as documents_router
 from app.identity.router import router as auth_router
 from app.jobs.router import router as jobs_router
+from app.knowledge.agent_tools import register_knowledge_tools
 from app.knowledge.promotion_router import router as promotion_router
+from app.knowledge.promotion_tools import register_promotion_tools
 from app.knowledge.router import router as knowledge_router
 from app.projects.router import router as projects_router
 from app.providers.factory import build_provider
 from app.quality.router import router as quality_router
+from app.quality.tools import register_quality_tools
 from app.reviews.router import router as reviews_router
 
 logger = logging.getLogger(__name__)
@@ -120,6 +125,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database_engine = create_database_engine(app.state.settings.database_url)
     app.state.session_factory = create_session_factory(app.state.database_engine)
     app.state.agent_provider = build_provider(app.state.settings)
+    # 工具注册表建在应用启动时：InMemoryIdempotencyStore 的生命周期必须跨请求，
+    # 否则「确认-执行」的幂等去重只在单次请求内有效
+    agent_tools = ToolRegistry()
+    register_quality_tools(agent_tools)
+    register_promotion_tools(agent_tools)
+    register_knowledge_tools(agent_tools)
+    app.state.agent_tools = agent_tools
 
     # 默认不开放跨域（前端经 Vite 代理同源访问）；集团内部接入方可在环境变量中列入白名单
     if app.state.settings.cors_allowed_origins:
@@ -173,6 +185,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ready"}
 
     app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(projects_router)
     app.include_router(documents_router)
     app.include_router(agent_router)

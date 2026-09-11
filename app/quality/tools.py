@@ -42,6 +42,22 @@ class CompareInput(BaseModel):
     version_b_id: str = Field(min_length=1, max_length=128)
 
 
+class DraftInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=50, max_length=100_000)
+    notes: str | None = Field(default=None, max_length=4_000)
+
+
+class DraftOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    content: str
+    notes: str | None = None
+
+
 def _bound_source(context: Any) -> str | None:
     """读取对话绑定的文档版本正文；未绑定或无法读取时返回 None（回退到模型提供的 source）。"""
     version_id = getattr(context, "document_version_id", None)
@@ -88,6 +104,12 @@ def _judge(data: QualityInput, context: Any) -> QualityResponse:
 
 def _review(data: ReviewSuggestion, _context: Any) -> ReviewSuggestion:
     return review_comments(data)
+
+
+def _draft(data: DraftInput, _context: Any) -> DraftOutput:
+    # 起草产物只作为文本返回，落库由用户在界面上确认后走「保存为新版本」；
+    # Agent 无权直接写入项目文档，与「只建议不改稿」的边界一致。
+    return DraftOutput(title=data.title.strip(), content=data.content, notes=data.notes)
 
 
 def _trace(_model: BaseModel, result: object) -> object:
@@ -141,5 +163,14 @@ def register_quality_tools(registry: ToolRegistry) -> None:
             input_model=QualityInput,
             handler=_judge,
             output_model=QualityResponse,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="draft_document",
+            description="Draft a new document body from the user's requirements; returns text only, saving requires user confirmation",
+            input_model=DraftInput,
+            handler=_draft,
+            output_model=DraftOutput,
         )
     )

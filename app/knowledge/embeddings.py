@@ -49,6 +49,13 @@ def normalized_documents(provider: EmbeddingProvider, texts: list[str]) -> Float
     return np.asarray(vectors / norms, dtype=np.float32)
 
 
+def embedding_provider_from_settings(settings: object) -> FastEmbedProvider | None:
+    """按配置构造 embedding provider；embedding_enabled=false（离线/关键词模式）时返回 None。"""
+    if not getattr(settings, "embedding_enabled", False):
+        return None
+    return FastEmbedProvider(model_name=settings.embedding_model)
+
+
 def normalized_query(provider: EmbeddingProvider, text: str, dimension: int) -> FloatArray:
     vector = np.asarray(provider.embed_query(text), dtype=np.float32)
     if vector.ndim != 1 or vector.shape[0] != dimension or not np.isfinite(vector).all():

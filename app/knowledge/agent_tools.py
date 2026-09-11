@@ -14,8 +14,9 @@ from app.knowledge.embeddings import FastEmbedProvider
 from app.knowledge.schemas import SearchHit, SearchQuery
 from app.knowledge.search import search
 
-_embedding_provider = FastEmbedProvider()
 _storage: FileStorage | None = None
+_embedding_provider: FastEmbedProvider | None = None
+_embedding_configured: bool | None = None
 
 
 def _file_storage() -> FileStorage:
@@ -23,6 +24,20 @@ def _file_storage() -> FileStorage:
     if _storage is None:
         _storage = FileStorage(Settings())
     return _storage
+
+
+def _embedding_provider_for_agent() -> FastEmbedProvider | None:
+    """按配置（惰性加载）返回 embedding provider；embedding_enabled=false 时返回 None。
+
+    不能定义为模块级 `FastEmbedProvider()`：那会在应用导入时就加载 fastembed，
+    无视 EMBEDDING_ENABLED=false 的离线配置，也让纯关键词模式意外触发向量模型下载。
+    """
+    global _embedding_provider, _embedding_configured
+    if _embedding_configured is None:
+        settings = Settings()
+        _embedding_configured = settings.embedding_enabled
+        _embedding_provider = FastEmbedProvider(model_name=settings.embedding_model) if _embedding_configured else None
+    return _embedding_provider
 
 
 class KnowledgeSearchInput(BaseModel):
@@ -50,7 +65,7 @@ def _search_handler(data: KnowledgeSearchInput, context: Any) -> KnowledgeSearch
     space_ids = getattr(context, "knowledge_space_ids", None) or ()
     allowed_space_ids = frozenset(str(UUID(str(space_id))) for space_id in space_ids) if space_ids else None
     query = SearchQuery(query=data.query, mode=data.mode, limit=data.limit)
-    hits = search(session, _file_storage(), query, actor, embedding_provider=_embedding_provider, allowed_space_ids=allowed_space_ids)
+    hits = search(session, _file_storage(), query, actor, embedding_provider=_embedding_provider_for_agent(), allowed_space_ids=allowed_space_ids)
     return KnowledgeSearchOutput(hits=list(hits), total=len(hits))
 
 

@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   documents: vi.fn(), versions: vi.fn(), versionContent: vi.fn(),
   reviews: vi.fn(), review: vi.fn(), assignReviewer: vi.fn(), transitionReview: vi.fn(),
   spaces: vi.fn(),
+  adminUsers: vi.fn(), adminUpdateUser: vi.fn(),
 }))
 vi.mock('../api/client', async (original) => ({
   ...(await original<typeof import('../api/client')>()), api,
@@ -51,6 +52,7 @@ describe('document and review workspace boundaries', () => {
     api.reviews.mockResolvedValue([task])
     api.review.mockResolvedValue(task)
     api.spaces.mockResolvedValue({ items: [] })
+    api.adminUsers.mockResolvedValue([])
   })
 
   it('preserves the selected document version and unsaved draft while reviewing another version', async () => {

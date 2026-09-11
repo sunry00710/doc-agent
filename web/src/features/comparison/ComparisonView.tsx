@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { displayError, displayLabel, zhCN } from '../../app/strings'
 import { api } from '../../api/client'
@@ -55,21 +55,65 @@ function ChangeCard({ change }: { change: ComparisonChange }) {
   </article>
 }
 
-export function ComparisonView({ token, versions }: { token: string; versions: DocumentVersion[] }) {
+type StoredComparison = { v: 1; a: string; b: string; mode: string; result: Comparison }
+
+function readStored(docKey: string): StoredComparison | null {
+  try {
+    const raw = sessionStorage.getItem(docKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<StoredComparison>
+    if (parsed.v !== 1 || typeof parsed.a !== 'string' || typeof parsed.b !== 'string'
+      || typeof parsed.mode !== 'string' || !parsed.result || typeof parsed.result !== 'object') return null
+    return parsed as StoredComparison
+  } catch { return null }
+}
+
+function writeStored(docKey: string, value: StoredComparison | null) {
+  try {
+    if (value) sessionStorage.setItem(docKey, JSON.stringify(value))
+    else sessionStorage.removeItem(docKey)
+  } catch { /* 存储不可用时仅丢失跨 tab 保持，不影响本次对比 */ }
+}
+
+export function ComparisonView({ token, documentId, versions }: { token: string; documentId: string; versions: DocumentVersion[] }) {
   const [a, setA] = useState('')
   const [b, setB] = useState('')
   const [mode, setMode] = useState('semantic')
   const [result, setResult] = useState<Comparison | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const restored = useRef(false)
+  const docKey = `doc-agent-compare-${documentId}`
 
-  // 版本列表加载后默认选中最早与最新版本，避免每次手动选择
+  // 版本列表加载后默认选中最早与最新版本；有上次对比记录时优先还原（切换 tab 不丢结果）
   useEffect(() => {
-    if (versions.length >= 2 && !a && !b) {
-      setA(versions[0].id)
-      setB(versions[versions.length - 1].id)
+    if (versions.length < 2 || a || b) return
+    if (!restored.current) {
+      restored.current = true
+      const saved = readStored(docKey)
+      const known = (id: string) => versions.some((version) => version.id === id)
+      if (saved && saved.a !== saved.b && known(saved.a) && known(saved.b)) {
+        setA(saved.a)
+        setB(saved.b)
+        setMode(saved.mode)
+        setResult(saved.result)
+        return
+      }
     }
-  }, [versions, a, b])
+    setA((current) => current || versions[0].id)
+    setB((current) => current || versions[versions.length - 1].id)
+  }, [versions, a, b, docKey])
+
+  // 选择变化即收起旧结果：旧结果与新选择不再对应，避免显示空变更卡片引起误读
+  function selectA(next: string) {
+    setA(next); setResult(null); setError(''); writeStored(docKey, null)
+  }
+  function selectB(next: string) {
+    setB(next); setResult(null); setError(''); writeStored(docKey, null)
+  }
+  function selectMode(next: string) {
+    setMode(next); setResult(null); setError(''); writeStored(docKey, null)
+  }
 
   async function compare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -87,6 +131,7 @@ export function ComparisonView({ token, versions }: { token: string; versions: D
         return
       }
       setResult(next)
+      writeStored(docKey, { v: 1, a, b, mode, result: next })
     } catch (reason) {
       setError(displayError((reason as Partial<ApiError>).code, '版本对比未能完成，请稍后重试。'))
     } finally {
@@ -110,13 +155,13 @@ export function ComparisonView({ token, versions }: { token: string; versions: D
     <h2>对比不可变版本</h2>
     <form className="compare-form" onSubmit={compare}>
       <div className="form-row">
-        <label>版本 A<select value={a} onChange={(event) => setA(event.target.value)}>
+        <label>版本 A<select value={a} onChange={(event) => selectA(event.target.value)}>
           {versions.map((version) => <option key={version.id} value={version.id}>{label(version)}</option>)}
         </select></label>
-        <label>版本 B<select value={b} onChange={(event) => setB(event.target.value)}>
+        <label>版本 B<select value={b} onChange={(event) => selectB(event.target.value)}>
           {versions.map((version) => <option key={version.id} value={version.id}>{label(version)}</option>)}
         </select></label>
-        <label>对比方式<select value={mode} onChange={(event) => setMode(event.target.value)}>
+        <label>对比方式<select value={mode} onChange={(event) => selectMode(event.target.value)}>
           {Object.entries(MODE_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
         </select></label>
       </div>

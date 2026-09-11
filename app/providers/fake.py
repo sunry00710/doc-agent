@@ -15,6 +15,27 @@ from app.providers.base import (
 
 # 离线演示：识别检索意图词，触发 search_knowledge 工具调用闭环
 _RETRIEVAL_INTENT = re.compile(r"检索|搜索|知识库|查找|查一下|查查|引用|依据|根据|参考资料|先例|案例")
+# 起草意图：命中后调用 draft_document，走「生成草稿 → 用户确认保存」链路
+_DRAFT_INTENT = re.compile(r"起草|拟一份|拟写|写一份|写一篇|撰写|草拟|帮我写")
+# 从「起草一份《XXX》」类句式提取标题
+_DRAFT_TITLE = re.compile(r"[《\"]([^》\"]{2,120})[》\"]")
+
+
+def _demo_draft_body(user_text: str) -> str:
+    requirement = user_text.strip()[:200]
+    return (
+        "# 草稿标题\n\n"
+        "## 起草要求\n"
+        f"{requirement}\n\n"
+        "## 一、基本情况\n"
+        "（此处填写审计事项、范围与依据。）\n\n"
+        "## 二、发现的问题\n"
+        "1. 待补充：问题事实；\n"
+        "2. 待补充：证据来源与对应条款。\n\n"
+        "## 三、整改建议\n"
+        "（建议应逐条对应上述问题，明确责任主体与完成时限。）\n\n"
+        "说明：这是离线演示生成的骨架草稿，请在正文中补充真实事实与证据后再提交。"
+    )
 # 从消息中提取检索宾语（如“根据知识库检索一下责任分工的内容”→“责任分工”），
 # 避免整句作为 FTS 查询（单字 AND 语义下整句必然 0 命中）
 _RETRIEVAL_QUERY = re.compile(r"(?:检索|搜索|查找|查一下|查查)(?:一下)?(.+?)(?:的内容|相关内容|相关资料|的资料|的信息|信息)?[。？?!！ ]*$")
@@ -72,6 +93,22 @@ class FakeProvider(ModelProvider):
             (message.content for message in reversed(request.messages) if message.role == "user"),
             "",
         )
+        has_draft_tool = any(tool.get("name") == "draft_document" for tool in request.tools)
+        if user_text and has_draft_tool and _DRAFT_INTENT.search(user_text):
+            title = _DRAFT_TITLE.search(user_text)
+            call = ToolCall(
+                id="demo-draft-1",
+                name="draft_document",
+                arguments=json.dumps(
+                    {
+                        "title": (title.group(1).strip() if title else "新建审计文书草稿")[:120],
+                        "content": _demo_draft_body(user_text),
+                        "notes": "离线演示草稿：由本地 FakeProvider 生成，仅供演示「起草 → 确认保存」链路，内容未使用模型生成。",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            return CompletionResult(content=None, tool_calls=[call.to_provider()])
         has_search_tool = any(tool.get("name") == "search_knowledge" for tool in request.tools)
         if user_text and has_search_tool and _RETRIEVAL_INTENT.search(user_text):
             match = _RETRIEVAL_QUERY.search(user_text.strip())
@@ -85,6 +122,20 @@ class FakeProvider(ModelProvider):
         return CompletionResult(content="离线演示回复：已收到请求。当前使用本地 FakeProvider，未调用外部模型。")
 
     def _demo_after_tool(self, name: str, content: str, tool_call_id: str, request: CompletionRequest) -> CompletionResult:
+        if name == "draft_document":
+            try:
+                payload = json.loads(content)
+            except (json.JSONDecodeError, TypeError):
+                payload = None
+            if isinstance(payload, dict) and payload.get("title") and payload.get("content"):
+                return CompletionResult(
+                    content=(
+                        f"已为你起草《{payload['title']}》草稿（{len(str(payload['content']))} 字），"
+                        "内容如下，可点击下方「保存为草稿」写入编辑器，再经「保存为新版本」落库：\n\n"
+                        f"{payload['content']}"
+                    )
+                )
+            return CompletionResult(content="草稿生成失败：工具未返回有效内容。（离线演示回复）")
         if name == "search_knowledge":
             try:
                 payload = json.loads(content)

@@ -27,6 +27,7 @@ from app.quality.contracts import (
     contract_read,
     create_contract,
     create_revision,
+    get_contract_document,
 )
 from app.quality.models import WritingContract, WritingContractRevision
 from app.quality.supervisor import SupervisorSimulation, simulate_supervisor_review
@@ -112,9 +113,7 @@ def read_document_contract(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db)],
 ) -> ContractRead:
-    from app.quality.contracts import _get_document
-
-    _get_document(session, document_id, user)
+    get_contract_document(session, document_id, user)
     contract = session.scalar(select(WritingContract).where(WritingContract.document_id == str(document_id)))
     if contract is None:
         raise AppError("not_found", "Writing contract not found", 404)
@@ -169,8 +168,6 @@ def simulate_contract(
     contract = session.get(WritingContract, str(contract_id))
     if contract is None:
         raise AppError("not_found", "Writing contract not found", 404)
-    from app.projects.permissions import ProjectAction, require_project_permission
-
     require_project_permission(UUID(contract.project_id), ProjectAction.view, user, session)
     revision = session.scalar(select(WritingContractRevision).where(WritingContractRevision.contract_id == contract.id, WritingContractRevision.revision == contract.active_revision))
     if revision is None:

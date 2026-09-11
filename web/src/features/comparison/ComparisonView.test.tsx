@@ -13,7 +13,7 @@ const versions = [
   { id: 'v2', document_id: 'doc', number: 2, content_sha256: 'b', storage_key: 'b', created_by: 'u', created_at: '2026-09-02T00:00:00Z' },
 ]
 
-function result(overrides: Partial<Comparison>): Comparison {
+function result(overrides: Partial<Comparison> = {}): Comparison {
   return {
     version_a_id: 'v1',
     version_b_id: 'v2',
@@ -31,12 +31,16 @@ function result(overrides: Partial<Comparison>): Comparison {
 
 async function runCompare() {
   const user = userEvent.setup()
-  render(<ComparisonView token="token" versions={versions} />)
+  const view = render(<ComparisonView token="token" documentId="doc" versions={versions} />)
   await user.click(screen.getByRole('button', { name: '开始对比' }))
-  return user
+  return { user, view }
 }
 
 describe('ComparisonView', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    compareMock.mockReset()
+  })
   it('labels a model-backed comparison and renders semantic change detail', async () => {
     compareMock.mockResolvedValue(result({
       changes: [{
@@ -99,5 +103,47 @@ describe('ComparisonView', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('模型服务暂时不可用')
     expect(screen.queryByText(/对比完成/)).toBeNull()
+  })
+
+  it('restores the last comparison after remounting', async () => {
+    compareMock.mockResolvedValue(result({ summary: '语义对比完成（模型语义分析），共发现 1 项变化' }))
+
+    const { view } = await runCompare()
+    expect(await screen.findByText('语义对比完成（模型语义分析），共发现 1 项变化')).toBeTruthy()
+    view.unmount()
+
+    render(<ComparisonView token="token" documentId="doc" versions={versions} />)
+
+    expect(screen.getByText('语义对比完成（模型语义分析），共发现 1 项变化')).toBeTruthy()
+    expect(compareMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a restored result when the reader picks a different version', async () => {
+    compareMock.mockResolvedValue(result())
+
+    const { view } = await runCompare()
+    expect(await screen.findByText('语义对比完成（模型语义分析），共发现 1 项变化')).toBeTruthy()
+    view.unmount()
+
+    const user = userEvent.setup()
+    render(<ComparisonView token="token" documentId="doc" versions={versions} />)
+    expect(screen.getByText('语义对比完成（模型语义分析），共发现 1 项变化')).toBeTruthy()
+    await user.selectOptions(screen.getByLabelText('版本 B'), 'v1')
+
+    expect(screen.queryByText(/对比完成/)).toBeNull()
+  })
+
+  it('does not restore a stale result recorded for versions that are gone', async () => {
+    sessionStorage.setItem('doc-agent-compare-doc', JSON.stringify({
+      v: 1, a: 'old-1', b: 'old-2', mode: 'semantic', result: result({}),
+    }))
+
+    render(<ComparisonView token="token" documentId="doc" versions={versions} />)
+
+    expect(screen.queryByText('语义对比完成（模型语义分析），共发现 1 项变化')).toBeNull()
+    // 回退为默认选择：最早与最新版本
+    expect((screen.getByLabelText('版本 A') as HTMLSelectElement).value).toBe('v1')
+    expect((screen.getByLabelText('版本 B') as HTMLSelectElement).value).toBe('v2')
+    expect(compareMock).not.toHaveBeenCalled()
   })
 })

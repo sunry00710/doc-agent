@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { displayLabel, zhCN } from './strings'
+import { canGovernKnowledge, isAdmin } from './roles'
 import {
   api,
   type Citation,
@@ -112,6 +113,16 @@ export function App() {
     void api.spaces(token).then((result) => {
       if (generation === bootstrapGeneration.current) setKnowledgeSpaces(result.items)
     }).catch(() => { /* 空间列表拉取失败不阻断启动；来源多选区隐藏即可 */ })
+  }, [token])
+
+  // Job 面板轮询：上传版本后索引任务由后台 worker 消费，排队中/完成/失败要及时反映
+  useEffect(() => {
+    if (!token) return
+    const timer = window.setInterval(() => {
+      if (window.document.visibilityState !== 'visible') return
+      void api.jobs(token).then((result) => setJobs(result.items)).catch(() => { /* 轮询失败保持现状，下一次重试 */ })
+    }, 15_000)
+    return () => window.clearInterval(timer)
   }, [token])
 
   useEffect(() => {
@@ -328,11 +339,13 @@ export function App() {
   return <div className={railOpen ? 'app-shell' : 'app-shell rail-closed'}>
     <nav className="side-nav" aria-label="主导航">
       <div className="brand">Doc Agent</div>
-      {navigation.filter(([id]) => id !== 'reviews' || user.role !== 'admin').map(([id, label]) => <button type="button" className={view === id ? 'active' : ''} key={id} onClick={() => navigate(id)}>{label}</button>)}
-      {user.role === 'admin' && <>
+      {navigation.filter(([id]) => id !== 'reviews' || !isAdmin(user)).map(([id, label]) => <button type="button" className={view === id ? 'active' : ''} key={id} onClick={() => navigate(id)}>{label}</button>)}
+      {isAdmin(user) && <>
         <button type="button" className={['management', 'reviews', 'governance'].includes(view) ? 'active' : ''} onClick={() => navigate('management')}>管理</button>
         {['management', 'reviews', 'governance'].includes(view) && <div className="management-nav" role="group" aria-label="管理导航"><button type="button" aria-current={view === 'reviews' ? 'page' : undefined} onClick={() => navigate('reviews')}>待我评审</button><button type="button" aria-current={view === 'governance' ? 'page' : undefined} onClick={() => navigate('governance')}>知识库治理</button></div>}
       </>}
+      {/* 上级（reviewer）也有治理权，但管理页与系统评审队列仅管理员可见；管理员入口已含治理，避免重复渲染 */}
+      {!isAdmin(user) && canGovernKnowledge(user) && <button type="button" className={view === 'governance' ? 'active' : ''} onClick={() => navigate('governance')}>知识库治理</button>}
       <label className="project-select">项目
         <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
           <option value="">请选择项目</option>
@@ -346,9 +359,9 @@ export function App() {
       </div>
     </nav>
     {view === 'workspace' && <AgentWorkspace key={`${user.id}-${projectId}`} context={agentContext} userId={user.id} sessionKey={projectId} knowledgeSources={knowledgeSources} selectedSourceIds={currentSourceIds} onToggleSource={toggleSource} targetDocuments={documents.map((item) => ({ id: item.id, title: item.title }))} activeDocumentId={document?.id ?? null} onSelectTarget={(documentId) => { if (!documentId) { clearTarget(); return } const target = documents.find((item) => item.id === documentId); if (target) loadDocument(target) }} onSend={(text, options) => api.chat(token, { text, confirmed: options.confirmed, idempotency_key: options.idempotencyKey, project_id: chatProjectId, document_version_id: selectedVersion?.id, knowledge_space_ids: currentSourceIds })} onCitations={setCitations} />}
-    {view === 'knowledge' && <KnowledgeManager token={token} currentUserId={user.id} selectedVersionId={selectedVersion?.id} selectedVersionLabel={versionLabel} onOpenGovernance={() => navigate('governance')} onOpenHit={(hit) => { void openSource(hit.document_id, hit.version_id, true).then(() => navigate('documents')) }} />}
-    {view === 'governance' && <KnowledgeGovernance token={token} onBack={() => navigate('knowledge')} />}
-    {view === 'management' && (user.role === 'admin' ? <ManagementWorkspace key={`${user.id}-${projectId}`} token={token} projectId={projectId} /> : <main className="management-workspace"><h1>管理</h1><p role="status">当前账号没有管理权限。</p></main>)}
+    {view === 'knowledge' && <KnowledgeManager token={token} currentUserId={user.id} selectedVersionId={selectedVersion?.id} selectedVersionLabel={versionLabel} canGovern={canGovernKnowledge(user)} onOpenGovernance={() => navigate('governance')} onOpenHit={(hit) => { void openSource(hit.document_id, hit.version_id, true).then(() => navigate('documents')) }} />}
+    {view === 'governance' && (canGovernKnowledge(user) ? <KnowledgeGovernance token={token} onBack={() => navigate('knowledge')} /> : <main className="management-workspace"><h1>知识库治理</h1><p role="status">当前账号没有治理权限。</p></main>)}
+    {view === 'management' && (isAdmin(user) ? <ManagementWorkspace key={`${user.id}-${projectId}`} token={token} projectId={projectId} currentUserId={user.id} /> : <main className="management-workspace"><h1>管理</h1><p role="status">当前账号没有管理权限。</p></main>)}
     {view === 'reviews' && <ReviewWorkspace key={`${user.id}-${projectId}`} token={token} projectId={projectId} documents={reviewDocuments} currentUserId={user.id} onOpenDocument={async (documentId, versionId) => { await openSource(documentId, versionId); navigate('documents') }} />}
     {view === 'documents' && <div className="content-columns">
       <aside className="document-list">

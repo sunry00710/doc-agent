@@ -12,12 +12,15 @@ type KnowledgeManagerProps = {
   selectedVersionLabel?: string
   onOpenHit: (hit: SearchHit) => void
   onOpenGovernance: () => void
+  // 治理需要全局 reviewer/admin（与后端 review_promotion 的角色校验一致）；
+  // 无治理权的账号不该看到跳进「空治理页」的入口
+  canGovern: boolean
 }
 
 // 空间分级展示顺序：个人 → 项目 → 共享 → 规范
 const SPACE_ORDER: Record<string, number> = { personal: 0, project: 1, shared: 2, standard: 3 }
 
-export function KnowledgeManager({ token, currentUserId, selectedVersionId, selectedVersionLabel, onOpenHit, onOpenGovernance }: KnowledgeManagerProps) {
+export function KnowledgeManager({ token, currentUserId, selectedVersionId, selectedVersionLabel, onOpenHit, onOpenGovernance, canGovern }: KnowledgeManagerProps) {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
   const [spaces, setSpaces] = useState<KnowledgeSpace[]>([])
@@ -90,7 +93,7 @@ export function KnowledgeManager({ token, currentUserId, selectedVersionId, sele
       : `版本 ${promotion.version_id.slice(0, 8)}…`
 
   return <main className="knowledge-workspace">
-    <header className="review-task-header"><div><p className="eyebrow">知识库</p><h1>知识库</h1></div><button type="button" onClick={onOpenGovernance}>知识库治理</button></header>
+    <header className="review-task-header"><div><p className="eyebrow">知识库</p><h1>知识库</h1></div>{canGovern && <button type="button" onClick={onOpenGovernance}>知识库治理</button>}</header>
     {notice && <p className="success" role="status">{notice}</p>}
     <section className="feature-panel">
       <h2>知识空间</h2>

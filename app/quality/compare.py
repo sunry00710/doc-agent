@@ -1,3 +1,8 @@
+"""版本对比结果的绑定校验。
+
+注意命名：本模块只做「变更是否绑定到请求中的两个版本」的校验；
+真正的对比算法（LLM/启发式/difflib 三引擎）在 ``app/quality/comparison.py``。
+"""
 from __future__ import annotations
 
 from app.quality.schemas import ComparisonResult

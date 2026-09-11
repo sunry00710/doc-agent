@@ -28,7 +28,8 @@ type AgentWorkspaceProps = {
   context?: AgentContext
   sessionKey?: string
   userId?: string
-  onApplySuggestion?: (text: string) => void
+  // draft 为 true 时表示完整的起草产物，应替换草稿正文；否则按建议追加
+  onApplySuggestion?: (text: string, kind: 'suggestion' | 'draft') => void
   compact?: boolean
   knowledgeSources?: KnowledgeSource[]
   selectedSourceIds?: string[]
@@ -46,6 +47,16 @@ function messageStorageKey(sessionKey?: string, userId?: string) {
 
 function mayMutate(text: string): boolean {
   return /\b(submit|promote|promotion|archive|revoke|approve|reject)\b|提交|发布|晋升|归档|撤销|批准|驳回/i.test(text)
+}
+
+// 起草工具成功时，把草稿正文交给上层「应用到草稿」，由用户在文档页确认保存为新版本
+function draftContent(traces?: Trace[]): string | null {
+  const drafting = traces?.findLast((trace) => trace.name === 'draft_document' && trace.status === 'succeeded')
+  const result = drafting?.result
+  if (result && typeof result === 'object' && 'content' in result && typeof (result as { content: unknown }).content === 'string') {
+    return (result as { content: string }).content
+  }
+  return null
 }
 
 export function AgentWorkspace({ onSend, onCitations, context, sessionKey, userId, onApplySuggestion, compact = false, knowledgeSources, selectedSourceIds, onToggleSource, targetDocuments, activeDocumentId, onSelectTarget }: AgentWorkspaceProps) {
@@ -144,7 +155,10 @@ export function AgentWorkspace({ onSend, onCitations, context, sessionKey, userI
     {showGuide && <section className="feature-panel" aria-label="使用指引"><div className="conversation-header"><div><h2>快速开始</h2><p className="muted">选择项目和文档后，可让 Agent 检查内容、对比版本或检索证据。</p></div><button type="button" onClick={() => { sessionStorage.setItem('doc-agent-guide-closed', 'true'); setShowGuide(false) }}>关闭指引</button></div><ol><li>在左侧选择项目，并在“文档”中选择版本。</li><li>确认上方上下文已绑定项目与文档版本。</li><li>在下方输入你的问题或请求。</li><li>提交、晋升、归档等会改变状态的操作需要再次确认。</li></ol></section>}
     <section className="messages" aria-live="polite">
       {messages.length === 0 && <div className="empty-state"><h2>从问题或请求开始</h2><p>可请求检查、版本对比或基于证据的建议。涉及文档或知识状态变更的操作需要确认。</p></div>}
-      {messages.map((message) => <article className={`message ${message.role}`} key={message.id}><p className="message-role">{message.role === 'user' ? '我' : 'Agent'}</p><p>{message.text}</p>{message.role === 'assistant' && onApplySuggestion && <button type="button" className="apply-suggestion" onClick={() => onApplySuggestion(message.text)}>应用到草稿</button>}{message.traces?.map((trace) => <ToolTrace key={trace.tool_call_id} trace={trace} />)}</article>)}
+      {messages.map((message) => {
+        const draft = message.role === 'assistant' ? draftContent(message.traces) : null
+        return <article className={`message ${message.role}`} key={message.id}><p className="message-role">{message.role === 'user' ? '我' : 'Agent'}</p><p>{message.text}</p>{message.role === 'assistant' && onApplySuggestion && <button type="button" className="apply-suggestion" onClick={() => draft !== null ? onApplySuggestion(draft, 'draft') : onApplySuggestion(message.text, 'suggestion')}>{draft !== null ? '保存为草稿' : '应用到草稿'}</button>}{message.traces?.map((trace) => <ToolTrace key={trace.tool_call_id} trace={trace} />)}</article>
+      })}
     </section>
     {error && <p className="error" role="alert">{error}</p>}
     {needsConfirmation && <section className="confirmation" role="dialog" aria-label="确认操作"><strong>确认执行操作</strong><p>该请求可能会变更文档或知识状态。请确认你希望授权此操作。</p><div><button type="button" onClick={() => setNeedsConfirmation(false)}>取消</button><button type="button" onClick={() => void send(true)}>确认并发送</button></div></section>}

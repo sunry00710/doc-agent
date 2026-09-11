@@ -10,9 +10,10 @@ from app.db.session import get_db
 from app.documents.models import Document, DocumentVersion
 from app.documents.router import get_storage
 from app.documents.storage import FileStorage
-from app.identity.models import Role, User
+from app.identity.models import User
+from app.identity.roles import can_govern_knowledge
 from app.identity.router import get_current_user
-from app.knowledge.embeddings import FastEmbedProvider
+from app.knowledge.embeddings import embedding_provider_from_settings
 from app.knowledge.ingestion import ingest_version
 from app.knowledge.models import KnowledgeSpace, KnowledgeSpaceKind, KnowledgeState
 from app.knowledge.promotion import PromotionRequest
@@ -85,14 +86,6 @@ def create_space(
     return KnowledgeSpaceRead.model_validate(space)
 
 
-def _embedding_provider_for(request: Request) -> FastEmbedProvider | None:
-    """按配置返回 embedding provider；embedding_enabled=false 时返回 None（纯关键词模式）。"""
-    settings = request.app.state.settings
-    if not settings.embedding_enabled:
-        return None
-    return FastEmbedProvider(model_name=settings.embedding_model)
-
-
 @router.post("/spaces/{space_id}/ingest", response_model=IngestResult, status_code=201)
 def ingest_into_space(
     request: Request,
@@ -119,7 +112,7 @@ def ingest_into_space(
         storage,
         UUID(version.id),
         UUID(space.id),
-        embedding_provider=_embedding_provider_for(request),
+        embedding_provider=embedding_provider_from_settings(request.app.state.settings),
     )
     knowledge_document.state = KnowledgeState.indexed
     session.commit()
@@ -144,7 +137,7 @@ def list_promotions(
         statement = statement.where(PromotionRequest.version_id == version_id)
     requests = session.scalars(statement.order_by(PromotionRequest.created_at.desc())).all()
     governable_projects = set()
-    if current_user.role in {Role.reviewer, Role.admin}:
+    if can_govern_knowledge(current_user):
         memberships = session.scalars(select(ProjectMember).where(ProjectMember.user_id == current_user.id))
         governable_projects = {
             member.project_id for member in memberships
@@ -161,4 +154,4 @@ def search_knowledge(
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[FileStorage, Depends(get_storage)],
 ) -> list[SearchHit]:
-    return search(session, storage, query, current_user, embedding_provider=_embedding_provider_for(request))
+    return search(session, storage, query, current_user, embedding_provider=embedding_provider_from_settings(request.app.state.settings))

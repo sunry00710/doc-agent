@@ -10,7 +10,8 @@ from app.core.errors import AppError
 from app.documents.models import Document, DocumentVersion
 from app.documents.service import read_version
 from app.documents.storage import FileStorage
-from app.identity.models import Role, User
+from app.identity.models import User
+from app.identity.roles import can_govern_knowledge
 from app.knowledge.embeddings import EmbeddingProvider
 from app.knowledge.ingestion import ingest_version
 from app.knowledge.models import (
@@ -138,7 +139,7 @@ def review_promotion(
     require_project_permission(
         UUID(document.project_id), ProjectAction.review, actor, session
     )
-    if actor.role not in {Role.reviewer, Role.admin}:
+    if not can_govern_knowledge(actor):
         raise AppError("permission_denied", "Reviewer approval required", 403)
     if request.status not in {PromotionStatus.pending_review, PromotionStatus.approved}:
         return request
@@ -167,7 +168,7 @@ def activate_promotion(
     require_project_permission(
         UUID(source_document.project_id), ProjectAction.review, actor, session
     )
-    if actor.role not in {Role.reviewer, Role.admin}:
+    if not can_govern_knowledge(actor):
         raise AppError("permission_denied", "Reviewer approval required", 403)
     if request.status != PromotionStatus.approved:
         raise AppError("validation_error", "Promotion is not approved", 422)
@@ -204,7 +205,7 @@ def revoke_promotion(
     require_project_permission(
         UUID(document.project_id), ProjectAction.review, actor, session
     )
-    if actor.role not in {Role.reviewer, Role.admin}:
+    if not can_govern_knowledge(actor):
         raise AppError("permission_denied", "Reviewer approval required", 403)
     request.status = PromotionStatus.revoked
     document = session.scalar(

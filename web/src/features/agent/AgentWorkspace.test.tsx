@@ -61,4 +61,29 @@ describe('AgentWorkspace', () => {
     render(<AgentWorkspace onSend={chat} onCitations={() => undefined} />)
     expect(screen.getByText(/请先在左侧选择项目/)).toBeTruthy()
   })
+
+  it('offers to apply a drafted reply as editable draft content', async () => {
+    const user = userEvent.setup()
+    const applied: Array<[string, string]> = []
+    const draftReply = async () => ({
+      text: '已为你起草《整改报告》草稿。',
+      traces: [{
+        tool_call_id: 'draft-1',
+        name: 'draft_document',
+        arguments: { fields: ['title', 'content'] },
+        status: 'succeeded' as const,
+        result: { title: '整改报告', content: '# 整改报告\n\n一、基本情况。', notes: null },
+      }],
+      stop_reason: 'completed',
+    })
+    render(<AgentWorkspace onSend={draftReply} onCitations={() => undefined} onApplySuggestion={(text, kind) => applied.push([text, kind])} />)
+    await user.type(screen.getByLabelText('消息'), '起草一份整改报告')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+
+    const button = await screen.findByRole('button', { name: '保存为草稿' })
+    await user.click(button)
+
+    // 回填的必须是草稿正文（且标记为 draft 类型），而不是 Agent 的讲解文字
+    expect(applied).toEqual([['# 整改报告\n\n一、基本情况。', 'draft']])
+  })
 })

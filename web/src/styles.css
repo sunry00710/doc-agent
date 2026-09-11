@@ -88,8 +88,6 @@ h1, h2, p { margin-top: 0; }
 .review-task-header .text-action { display: inline-flex; align-items: center; gap: .35rem; flex: none; font-size: .85rem; }
 .review-task > .review-panel { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .review-queue-list button.selected:not(:disabled):hover { color: white; background: var(--primary-hover); }
-.task-badge { padding: .35rem .65rem; border-radius: 999px; color: #0071e3; background: var(--primary-soft); font-size: .78rem; font-weight: 700; }
-.review-task-source { max-width: 62rem; }
 .document-review-status { grid-column: 1 / -1; display: grid; gap: .55rem; padding: .9rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--card-shadow); }
 .document-status-line { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
 .document-status-line span { color: var(--text-muted); font-size: .82rem; }
@@ -171,7 +169,7 @@ h1, h2, p { margin-top: 0; }
 .apply-suggestion { justify-self: start; padding: .35rem .6rem; font-size: .8rem; }
 .version-banner { display: grid; gap: .35rem; padding: .8rem; border-left: 3px solid #0071e3; background: var(--primary-soft); }
 .version-banner span, .version-banner code { font-size: .75rem; }
-.hub-tabs { display: flex; gap: .4rem; margin: 1rem 0; }
+.hub-tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }
 .hub-tabs button { color: #6e6e73; background: #e8e8ed; text-transform: capitalize; }
 /* hub-tabs hover：未选中态需要可见的反馈（此前与静态背景同色，等于没有 hover） */
 .hub-tabs button:not(:disabled):not(.selected):hover { color: var(--text); background: #dcdce1; }
@@ -383,4 +381,16 @@ h1, h2, p { margin-top: 0; }
   button:not(:disabled):active,
   .rail-toggle:not(:disabled):active { transform: none; }
   button { transition: background .16s var(--ease-out), color .16s var(--ease-out), opacity .16s var(--ease-out); }
+}
+
+/* 导出 PDF：屏幕上的 .print-document 隐藏，打印时替换整个界面只留标题与正文 */
+.print-document { display: none; }
+.print-action { padding: .3rem .65rem; font-size: .8rem; }
+@media print {
+  body * { visibility: hidden; }
+  .print-document, .print-document * { visibility: visible; }
+  .print-document { position: absolute; inset: 0; padding: 0; color: #000; background: #fff; }
+  .print-document h1 { margin: 0 0 .4rem; font-size: 1.6rem; }
+  .print-meta { margin: 0 0 .8rem; font-size: .8rem; color: #555; }
+  .print-document pre { margin: 0; font-family: inherit; font-size: .95rem; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
 }

@@ -18,3 +18,6 @@ web/.edge-profile/
 # E2E 运行工件
 web/playwright-report/
 web/test-results/
+
+# 交付打包产物
+dist/
