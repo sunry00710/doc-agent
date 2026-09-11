@@ -202,7 +202,11 @@ h1, h2, p { margin-top: 0; }
 .account button:not(:disabled):hover { background: var(--sidebar-hover); }
 
 /* Agent 工作台 */
-.conversation { display: grid; grid-template-rows: auto 1fr auto; gap: 1rem; min-height: 100vh; padding: 2rem clamp(1.1rem, 3vw, 3rem); background: var(--bg); }
+/* 工作台：子元素数量随上下文变化（header/banner/sources/messages/composer），
+   用 auto 行 + align-content:start，消息区自行撑满剩余空间，避免出现大块空白 */
+.conversation { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; align-content: start; gap: 1rem; min-height: 100vh; padding: 2rem clamp(1.1rem, 3vw, 3rem); background: var(--bg); }
+/* 内嵌紧凑版（文档页内）：无目标文档/来源选择，3-4 行即可，消息区限高 */
+.conversation-compact { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); }
 .conversation-header h1 { font-size: clamp(1.45rem, 3vw, 2rem); }
 .status-dot { color: var(--success); font-size: .85rem; }
@@ -250,15 +254,16 @@ h1, h2, p { margin-top: 0; }
 /* 知识检索来源多选 */
 .knowledge-sources { display: grid; gap: .5rem; margin-top: .6rem; padding: .8rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--card-shadow); }
 .knowledge-sources legend { padding: 0 .35rem; font-size: .8rem; font-weight: 700; color: var(--text-muted); }
-.knowledge-source-chips { display: flex; flex-wrap: wrap; gap: .45rem; }
-.source-chip { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem .7rem; border: 1px solid var(--border-strong); border-radius: 980px; background: var(--surface-alt); font-size: .82rem; font-weight: 500; cursor: pointer; transition: background .16s var(--ease-out), border-color .16s var(--ease-out); }
+.knowledge-source-chips { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
+/* 覆盖全局 label{display:grid}，芯片应为内容宽的胶囊 */
+.source-chip { display: inline-flex; flex-direction: row; align-items: center; align-self: center; gap: .35rem; width: auto; height: auto; padding: .35rem .7rem; border: 1px solid var(--border-strong); border-radius: 980px; background: var(--surface-alt); font-size: .82rem; font-weight: 500; line-height: 1.2; cursor: pointer; transition: background .16s var(--ease-out), border-color .16s var(--ease-out); }
 .source-chip:hover { background: var(--gray-hover); }
 .source-chip.active { color: white; background: var(--primary); border-color: var(--primary); }
 .source-chip input { width: auto; margin: 0; accent-color: white; }
 .knowledge-sources .muted { font-size: .78rem; margin: 0; }
 
-/* 工作台自足：目标文档选择 */
-.target-document-select { display: grid; gap: .3rem; margin-bottom: .6rem; font-size: .85rem; font-weight: 600; color: var(--text-muted); }
+/* 工作台自足：目标文档选择（限宽，避免在宽屏被拉成大块白条） */
+.target-document-select { display: grid; gap: .35rem; margin-bottom: .6rem; max-width: 420px; font-size: .85rem; font-weight: 600; color: var(--text-muted); }
 .target-document-select select { width: 100%; padding: .5rem .7rem; border: 1px solid var(--border-strong); border-radius: var(--radius-small); background: var(--surface); color: var(--text); font-size: .88rem; }
 
 /* 通用操作行 */
@@ -319,6 +324,18 @@ h1, h2, p { margin-top: 0; }
 .upload-version h3 { margin: 0; font-size: .85rem; color: var(--text-muted); }
 .upload-version input[type="file"] { padding: .35rem; font-size: .82rem; background: white; }
 .upload-version button { justify-self: start; padding: .4rem .75rem; font-size: .85rem; }
+
+/* 苹果风文件选择器：替代浏览器原生 "选择文件 | 未选择文件" 控件 */
+.file-picker { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-small); background: var(--surface-alt); transition: border-color .16s var(--ease-out), background .16s var(--ease-out); }
+.file-picker.drag-over { border-color: var(--primary); background: var(--primary-soft); }
+.file-picker-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.file-picker-trigger { flex: none; padding: .38rem .8rem; font-size: .82rem; border-radius: 980px; }
+.file-picker-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; color: var(--text); }
+.file-picker-name .muted { font-size: .76rem; }
+.file-picker-hint { flex: 1 1 auto; font-size: .78rem; }
+.file-picker-clear { flex: none; width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: .95rem; line-height: 1; color: var(--text-muted); background: transparent; border: 1px solid var(--border-strong); border-radius: 50%; }
+.file-picker-clear:not(:disabled):hover { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.field-label { font-size: .9rem; font-weight: 600; }
 
 /* 响应式 */
 @media (max-width: 1280px) { .app-shell { grid-template-columns: 200px minmax(0, 1fr) 290px; }.content-columns { grid-template-columns: 215px minmax(0, 1fr); }.document-workspace { grid-template-columns: 200px minmax(0, 1fr); } }

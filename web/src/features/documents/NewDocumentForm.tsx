@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { displayError } from '../../app/strings'
 import { api } from '../../api/client'
 import type { ApiError, Document } from '../../api/client'
+import { FilePicker } from './FilePicker'
 
 type NewDocumentFormProps = {
   token: string
@@ -17,7 +18,6 @@ export function NewDocumentForm({ token, projectId, onCreated }: NewDocumentForm
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -40,7 +40,6 @@ export function NewDocumentForm({ token, projectId, onCreated }: NewDocumentForm
       setDomain('')
       setDocumentType('')
       setFile(null)
-      if (fileRef.current) fileRef.current.value = ''
       onCreated(document)
     } catch (reason) {
       setError(displayError((reason as Partial<ApiError>).code, '文档创建失败。'))
@@ -56,7 +55,8 @@ export function NewDocumentForm({ token, projectId, onCreated }: NewDocumentForm
       <label>领域<input value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="默认：综合" /></label>
       <label>类型<input value={documentType} onChange={(event) => setDocumentType(event.target.value)} placeholder="默认：报告" /></label>
     </div>
-    <label>正文文件（v1）<input ref={fileRef} type="file" aria-label="正文文件" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
+    <div className="field-label">正文文件（v1）</div>
+    <FilePicker label="正文文件" file={file} onSelect={setFile} disabled={busy} />
     {error && <p className="error" role="alert">{error}</p>}
     <button type="submit" disabled={busy}>{busy ? '创建中…' : '创建并上传 v1'}</button>
   </form>

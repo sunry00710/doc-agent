@@ -1,0 +1,154 @@
+# Doc Agent 交接文档（2026-09-11 傍晚 — 交给下一个 AI）
+
+> 前序文档：`docs/demo-handoff-2026-09-11.md`（上午验收）、`docs/demo-handoff-2026-09-11-final.md`（下午改造）。
+> **本文件是当前状态快照 + 未完成任务清单**，接手请从这里开始。
+
+## 〇、工作区状态（最重要）
+
+```
+项目根: D:\workspace1\doc-agent-worktrees\foundation
+分支: feature/doc-agent-foundation（仅本地，未 push）
+HEAD: 需要接手方自己跑 git log --oneline -3 确认
+```
+
+- **服务当前在运行**：后端 127.0.0.1:8000、前端 127.0.0.1:5173、登录 `demo / DemoPass-2026!`
+- 重启命令见 `docs/demo-handoff-2026-09-11.md` 第一节
+- **未提交改动**：UI 文件选择器改造（`FilePicker.tsx` 新增 + 两个表单替换 + CSS）。接手后先 `git status` 确认，然后提交或继续改
+
+## 一、测试基线（当前全绿）
+
+| 套件 | 命令 | 结果 |
+|---|---|---|
+| 后端 | `uv run pytest tests/integration tests/unit -q` | 184 passed, 1 skipped |
+| 前端 | `npm --prefix web test -- --run` | 29 passed |
+| E2E | `npm --prefix web run test:e2e` | 7 passed（自起隔离环境，独立端口） |
+| 类型 | `cd web && npx tsc --noEmit` | 干净 |
+
+## 二、用户本次提出的 6 个问题（已取证，答案在此）
+
+### Q1. 需要三种账户：管理员 / 上级 / 下级（员工）
+
+**现状**：只有全局 `Role`：`user` / `reviewer` / `admin`（`app/identity/models.py:14-17`）
+**已有的项目级权限**（`app/projects/permissions.py` ROLE_ACTIONS）：
+
+| 项目角色 | 权限 |
+|---|---|
+| contributor | view, edit, comment, submit |
+| reviewer | + review |
+| owner | 全部 |
+
+**用户要的映射**建议：
+- 管理员 = 全局 `admin`
+- 上级 = `reviewer` + 项目 `reviewer`/`owner`（可评审、可批准晋升）
+- 下级（员工）= `user` + 项目 `contributor`（提交、编辑、评论，不可批准）
+
+**待办**：①确认映射是否符合用户预期 ②UI 上明确展示当前角色能做什么 ③可能需要在管理页加"用户管理"（现在只有项目成员管理，`ManagementWorkspace.tsx`）④补一个创建 reviewer/admin 账号的脚本或界面（现只有 `scripts/bootstrap_admin.py`）
+
+### Q2. 页面级完整功能测试
+
+**已完成**：验收 1-9 项（评审闭环、晋升、索引、检索、撤销、鉴权）+ E2E 7 项
+**待办**：按"管理员/上级/下级"三种账号各跑一遍全流程，确认权限隔离符合 Q1 的预期。
+
+### Q3. 拖拽支持什么格式？
+
+**实测答案**：`.md` 和 `.txt`，**仅 UTF-8 编码**，最大 10MB
+- 校验点：`app/documents/storage.py:64-74`（后缀白名单 + 大小 + UTF-8 解码）
+- **不支持**：PDF、Word（.docx）、Excel、图片
+- 若要支持更多格式，需在后端加解析器（如 pypdf / python-docx），并在 `_validate_and_normalize` 扩展白名单
+
+### Q4. 能否直接在 Agent 里起草文件？
+
+**不能**。当前 Agent 只能：检索知识库、检查/改写已有正文、对比版本。
+**没有"从头写一篇新文档"的工具**。用户想"直接起草"需要：
+- 后端：新增 `draft_document` 工具（生成正文 → 写入新 Document；需定义是存入项目文档还是仅返回草稿文本）
+- 前端：工作台加"新建草稿"入口，或用 Agent 输出 + 现有「保存为新版本」按钮落地
+**建议实现**：Agent 生成 → 前端显示 → 用户点"保存为草稿"调用现有 `createDocument` + `uploadVersion`（复用现有链路，改动小）
+
+### Q5. 能识别什么文件？
+
+同 Q3：仅 `.md` / `.txt` 的**文本内容**。所谓"识别"就是按 UTF-8 读文本——**没有 OCR、没有 PDF 解析、没有 docx 解析**。
+
+### Q6. 导出 PDF？
+
+**完全没有导出功能**（grep 确认 `web/src` 无任何 download/export）。实现建议：
+- 前端：`react-to-print`（最简单）或 `window.print()` + @media print 样式
+- 后端：weasyprint/pandoc（重，且要考虑集团内网依赖）
+- **建议**：先用前端打印方案（零后端依赖，半天内可完成）
+
+### Q7. 语义对比用 AI 吗？提示词编排如何？
+
+**答：语义对比完全不用 AI。**
+
+| 组件 | 用 AI？ | 证据 |
+|---|---|---|
+| **版本对比（含"语义对比"）** | ❌ **纯 difflib 算法** | `app/quality/router.py:83-91` `difflib.SequenceMatcher` 逐行 diff |
+| check/rewrite/judge | ❌ 纯本地校验 | `quality/tools.py` → `normalize_findings` 比对切片 |
+| Agent 对话 | ✅ 走 Provider | `AgentRunner.run` → `provider.complete()` |
+| 知识库检索 | ⚠️ 半 AI | FastEmbed 向量 + SQLite FTS，无 LLM |
+
+**重要发现（两处）**：
+1. **"语义对比"是误称**——实际是逐行文本 diff。`comparison_type=semantic/requirements/standards`
+   三个选项**行为完全相同**（`router.py:81` 只用于摘要文案）。
+2. **`app/quality/prompts.py` 是死代码**——CHECK/REWRITE/COMPARE/REVIEW/JUDGE
+   五个 prompt 常量**无任何引用**（后端审计独立确认）。真实流程中模型自发决定工具调用，
+   **没有 system prompt 注入质量约束**。后果：接真实模型后，模型不知道
+   "evidence 必须是原文切片"等规则，只能靠工具执行失败兜底。
+
+**待办（接真实模型前最该做）**：
+- 把 `prompts.py` 激活为 system prompt：`AgentRunner.run`（`loop.py:80`）目前只发 user 消息，
+  需在 messages 前加 `ModelMessage(role="system", content=...)`
+- 提示词内容参考：本产品 PRD 的五场景要求（证据绑定、逻辑错位标记、人工复核降级）
+  + 审计署公文写作规范；GitHub 上 `audit-writing` 类 skill 大概率无高质量现成件，
+  建议自行编写
+- 可搜关键词：`claude skill legal writing` / `audit report prompt`
+
+## 三、用户指出的两个 UI 布局问题（已修复，2026-09-11 晚）
+
+### 问题 A：工作台"空旷" ✅ 已修
+
+**根因**：`.conversation` 声明 3 行网格（`auto 1fr auto`），实际有 5 个子元素 →
+隐式行分配错乱产生大空白。
+**修复**：`grid-template-rows: auto auto auto minmax(0, 1fr) auto; align-content: start`
++ `.conversation-compact` 用 4 行变体（`styles.css`）。
+
+### 问题 B：目标文档选择框"有点挤" ✅ 已修
+
+**根因**：`width: 100%` 在宽屏被拉成大块白条。
+**修复**：`max-width: 420px` + 间距调整。
+
+### 附带修复：来源芯片变椭圆 ✅ 已修
+
+**根因**：全局 `label { display: grid }` 命中新加的 `<label class="source-chip">`。
+**修复**：`.source-chip` 显式 `display: inline-flex; align-self: center; width: auto`。
+
+## 四、仍未接线（下午审计发现，优先级排序）
+
+| 优先 | 项 | 位置 | 说明 |
+|---|---|---|---|
+| P1 | Job 队列无生产端 | `app/jobs/service.py` enqueue 无调用者 | JobStatus 面板恒空；实际入库走同步 |
+| P1 | 评审乐观锁漏用 | `app/reviews/service.py:140+` | request_changes/add_comment 未用条件 UPDATE |
+| P2 | 契约 standard_ids 无消费 | `app/quality/contracts.py` | 落库不参与质量门判定 |
+| P2 | `AgentContext.project_id` 存而不读 | `app/agent/loop.py:31` | 与已修复的 document_version_id 同族 |
+| P3 | CitationPanel 引用被子集替换 | `App.tsx` setCitations | 多轮对话引用链丢失 |
+| P3 | 文档列表请求失败无错误态 | `App.tsx:119` | 失败显示为"没有文档" |
+
+## 五、环境关键信息（接手必读）
+
+- **模型**：`MODEL_PROVIDER=fake|self|internal`（默认 fake）。接真实模型需配 `SELF_AI_*` 或 `INTERNAL_API_*`，见 `.env.example`
+- **向量模型**：`BAAI/bge-small-zh-v1.5`，下载须用 `HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1`
+- **数据库**：SQLite + WAL 模式（`app/db/session.py`），本地库 `doc_agent.db`
+- **跑测试**：见第一节表格；E2E 会自起隔离环境（不会污染开发库）
+- **接口文档**：http://127.0.0.1:8000/docs（已配中文描述与标签）
+
+## 六、本会话已完成（2026-09-11 全天汇总）
+
+1. **验收**：评审流转闭环、双库检索、版本对比、权限拒绝全部实测通过
+2. **模型接入**：双 Provider 装配（自用 AI + 集团内网预留），配置缺失启动报错
+3. **语义检索修复**：发现并修复"从未生效"的 embedding 断链（0 向量 → 回填 136 块）
+4. **上下文模型**：质量工具绑定真实版本正文（防伪造）、知识来源多选、工作台自足选文档、会话保持
+5. **UI**：苹果风重构（材质层级）、动效修复、文件选择器苹果风化、文档列表滚动+筛选
+6. **基础设施**：WAL、备份/恢复脚本、token 过期自动跳登录、端口配置生效
+7. **提交**：`fcf76a3`（77 文件）已入库；UI FilePicker 改造**未提交**
+
+---
+**接手建议顺序**：读本文件 → 跑一次三套测试确认基线 → 修 UI 两处布局（第三节）→ 按用户优先级做 Q1（角色）或 Q4（起草）→ 其余见第四、二节。

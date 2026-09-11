@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { displayError } from '../../app/strings'
 import { api } from '../../api/client'
 import type { ApiError, DocumentVersion } from '../../api/client'
+import { FilePicker } from './FilePicker'
 
 type UploadVersionFormProps = {
   token: string
@@ -16,7 +17,6 @@ export function UploadVersionForm({ token, documentId, nextNumber, onUploaded }:
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -31,7 +31,6 @@ export function UploadVersionForm({ token, documentId, nextNumber, onUploaded }:
     try {
       const version = await api.uploadVersion(token, documentId, file)
       setFile(null)
-      if (fileRef.current) fileRef.current.value = ''
       setNotice(`已创建 v${version.number}。`)
       onUploaded(version)
     } catch (reason) {
@@ -43,7 +42,7 @@ export function UploadVersionForm({ token, documentId, nextNumber, onUploaded }:
 
   return <form className="upload-version" onSubmit={submit} aria-label="上传新版本">
     <h3>上传新版本（v{nextNumber}）</h3>
-    <input ref={fileRef} type="file" aria-label="新版本文件" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setNotice('') }} />
+    <FilePicker label="新版本文件" file={file} onSelect={(next) => { setFile(next); setNotice('') }} disabled={busy} />
     <button type="submit" disabled={!file || busy}>{busy ? '上传中…' : '上传为新版本'}</button>
     {notice && <p className="success" role="status">{notice}</p>}
     {error && <p className="error" role="alert">{error}</p>}
