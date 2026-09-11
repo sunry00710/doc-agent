@@ -104,7 +104,7 @@ def main() -> int:
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d")
-    zip_path = args.output / f"doc-agent-delivery-{stamp}.zip"
+    zip_path = args.output / f"DocAgent交付包-{stamp}.zip"
 
     files = collect_files()
     # 防回归：交付面文档必须进包（中文文件名的编码问题曾导致它们被静默漏掉）
