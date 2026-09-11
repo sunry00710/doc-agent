@@ -86,9 +86,9 @@ docs/                使用手册、架构说明、运维 runbook、历次交接
 
 | 文档 | 内容 |
 |---|---|
-| `docs/demo-usage-guide.md` | 三角色操作手册 + 完整演示脚本 |
-| `docs/architecture.md` | 模块地图、数据流、关键机制细节 |
-| `docs/deployment-guide.md` | **服务器/内网部署**：systemd、nginx、升级、备份、安全清单 |
-| `docs/multi-role-migration.md` | 「一人兼多角色」迁移方案（角色判断已收敛到 roles.py / roles.ts） |
-| `docs/operations-runbook.md` | 备份恢复、日志、常见故障处理 |
-| `docs/delivery-2026-09-11-final.md` | 本次交付的完整改动与验证记录 |
+| `docs/使用手册.md` | 三角色操作手册 + 完整演示脚本 |
+| `docs/架构说明.md` | 模块地图、数据流、关键机制细节 |
+| `docs/部署指南.md` | **服务器/内网部署**：systemd、nginx、升级、备份、安全清单 |
+| `docs/多角色迁移方案.md` | 「一人兼多角色」迁移方案（角色判断已收敛到 roles.py / roles.ts） |
+| `docs/运维手册.md` | 备份恢复、日志、常见故障处理 |
+| `docs/交付记录-2026-09-11.md` | 本次交付的完整改动与验证记录 |

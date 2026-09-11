@@ -50,7 +50,7 @@ START_README = """Doc Agent 交付包 · 启动说明
 
 【服务器 / 内网部署】
 完整步骤（systemd 服务、nginx 反代、生产构建、升级与备份、安全清单）见
-docs/deployment-guide.md。要点：后端与 worker 必须同时运行；生产必须设置
+docs/部署指南.md。要点：后端与 worker 必须同时运行；生产必须设置
 ENVIRONMENT=production、JWT_SECRET、MODEL_PROVIDER 与 DATABASE_URL 绝对路径。
 
 【离线环境】
@@ -64,20 +64,24 @@ scripts/prefetch_embeddings.py 并把缓存目录拷入（设 HF_HOME），详�
      npm --prefix web test -- --run
      npm --prefix web run test:e2e       （自动起隔离环境，需已装前端依赖）
 
-更多说明见 README.md、docs/demo-usage-guide.md（操作手册）、
-docs/deployment-guide.md（部署）、docs/architecture.md（架构）。
+更多说明见 README.md、docs/使用手册.md（操作手册）、
+docs/部署指南.md（部署）、docs/架构说明.md（架构）。
 """
 
 
+def git_paths(*extra_args: str) -> list[str]:
+    # -z: NUL 分隔且不做八进制转义——否则中文文件名（如 docs/使用手册.md）会被
+    # 转义成 \344\275\277... 导致路径解析失败、文件被静默漏出交付包
+    result = subprocess.run(
+        ["git", "ls-files", "-z", *extra_args],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    )
+    return [item for item in result.stdout.split("\0") if item]
+
+
 def collect_files() -> list[Path]:
-    tracked = subprocess.run(
-        ["git", "ls-files"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
-    ).stdout.splitlines()
-    untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
-    ).stdout.splitlines()
+    tracked = git_paths()
+    untracked = git_paths("--others", "--exclude-standard")
     paths: list[Path] = []
     for rel in sorted({line for line in [*tracked, *untracked] if line.strip()}):
         path = ROOT / rel
@@ -103,6 +107,14 @@ def main() -> int:
     zip_path = args.output / f"doc-agent-delivery-{stamp}.zip"
 
     files = collect_files()
+    # 防回归：交付面文档必须进包（中文文件名的编码问题曾导致它们被静默漏掉）
+    required = [
+        "docs/文档导航.md", "docs/使用手册.md", "docs/部署指南.md", "docs/架构说明.md",
+        "docs/运维手册.md", "docs/多角色迁移方案.md", "docs/交付记录-2026-09-11.md", "README.md",
+    ]
+    missing = [item for item in required if not (ROOT / item).is_file() or (ROOT / item) not in files]
+    if missing:
+        raise SystemExit(f"交付包缺少必选文档，拒绝打包：{missing}")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in files:
             archive.write(path, path.relative_to(ROOT).as_posix())

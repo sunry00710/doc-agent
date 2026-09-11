@@ -30,7 +30,7 @@ def _require_admin(actor: User) -> None:
 
 
 def _active_admin_count(session: Session) -> int:
-    # SQL 层计数（多角色迁移时改为对 user_roles 计数，见 docs/multi-role-migration.md §三）
+    # SQL 层计数（多角色迁移时改为对 user_roles 计数，见 docs/多角色迁移方案.md §三）
     return session.scalar(
         select(func.count()).select_from(User).where(User.role == Role.admin, User.is_active.is_(True))
     ) or 0

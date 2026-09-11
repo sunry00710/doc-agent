@@ -1,6 +1,6 @@
 # 交付完善设计（三角色 / 异步索引 / 起草 / 导出 / 打包）
 
-> 2026-09-11 夜间，基于 `docs/demo-handoff-2026-09-11-evening.md` 9.4 节遗留表。
+> 2026-09-11 夜间，基于 `docs/交接记录-2026-09-11晚间.md` 9.4 节遗留表。
 > 目标：完成 P1/P2/P3 全部待办，产出可交付 zip + 三角色使用手册 + 架构交接文档。
 > 决策已与用户逐项确认（AskUserQuestion ×2）。
 
@@ -86,7 +86,7 @@
 ## 8. 交付打包（交付项）
 
 - `README.md`（根目录，一页纸）：是什么 / 快速启动（uv、node、seed、dev_up.bat）/ 测试怎么跑 / 目录地图 / 文档索引。
-- `docs/使用手册`：更新 `demo-usage-guide.md` 为三角色分角色操作指南 + 完整演示脚本（登录→上传→评审→晋升→对比→导出→起草）。
+- `docs/使用手册`：更新 `使用手册.md` 为三角色分角色操作指南 + 完整演示脚本（登录→上传→评审→晋升→对比→导出→起草）。
 - `docs/架构与交接文档`：模块地图、数据流（上传→索引→检索→Agent）、关键约定（确认-执行、幂等、版本不可变、Job 语义）、接手 FAQ。
 - `scripts/package_delivery.py`：`git archive` 或清单复制 → `dist/doc-agent-delivery-YYYYMMDD.zip`，排除 `.venv/ node_modules/ doc_agent.db* storage/ __pycache__/ .pytest_cache/ test-results/`；zip 内附 `启动说明.txt`。
 

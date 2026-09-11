@@ -2,7 +2,7 @@
 
 当前 User.role 是单一枚举；产品规划中「一人兼多角色」上线后，这里的实现会改为
 读取 user.roles 集合，**调用点无需改动**——所有全局角色判断都必须经过本模块，
-禁止在业务代码里直接比较 `user.role == Role.xxx`（见 docs/multi-role-migration.md）。
+禁止在业务代码里直接比较 `user.role == Role.xxx`（见 docs/多角色迁移方案.md）。
 
 项目级角色（contributor/reviewer/owner）不走这里，见 app/projects/permissions.py。
 """
