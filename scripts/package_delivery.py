@@ -31,15 +31,15 @@ EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".log"}
 START_README = """Doc Agent 交付包 · 启动说明
 ================================
 
-前置：安装 uv（Python 包管理器）与 Node.js 18+。
-推荐在一台干净的 Windows 机器上按以下步骤验证：
+前置：安装 uv（Python 包管理器）与 Node.js 20.19+/22.12+。
 
+【本地试用 / 演示】
 1. 解压本包到任意目录（路径避免中文，如 D:\\doc-agent）
 2. 打开终端进入解压目录，执行：
      uv sync
      uv run python scripts/seed_demo.py
      uv run python scripts/seed_roles.py
-     uv run python run_dev.py          （保持运行；Ctrl+C 停止）
+     uv run python run_dev.py          （保持运行；Ctrl+C 停止；同时拉起后端与 worker）
 3. 另开一个终端：
      npm --prefix web install
      npm --prefix web run dev
@@ -48,17 +48,24 @@ START_README = """Doc Agent 交付包 · 启动说明
      shangji / ReviewPass-2026! 上级
      xiashu / StaffPass-2026!   下级（员工）
 
-离线环境：本包默认 MODEL_PROVIDER=fake（离线演示模式，不调用外部模型）。
-语义检索依赖的向量模型（BAAI/bge-small-zh-v1.5）首次使用需要网络；
-无网络环境请在 web/.env 或运行环境中设置 EMBEDDING_ENABLED=false
-退回纯关键词检索（功能可用，只是没有向量召回）。
+【服务器 / 内网部署】
+完整步骤（systemd 服务、nginx 反代、生产构建、升级与备份、安全清单）见
+docs/deployment-guide.md。要点：后端与 worker 必须同时运行；生产必须设置
+ENVIRONMENT=production、JWT_SECRET、MODEL_PROVIDER 与 DATABASE_URL 绝对路径。
 
-日常测试：
+【离线环境】
+本包默认 MODEL_PROVIDER=fake（离线演示模式，不调用外部模型）。
+语义检索依赖向量模型（BAAI/bge-small-zh-v1.5），离线机器需先在联网机执行
+scripts/prefetch_embeddings.py 并把缓存目录拷入（设 HF_HOME），详见部署指南 §3；
+完全无模型时在项目根目录 .env 设置 EMBEDDING_ENABLED=false 退回纯关键词检索。
+
+【测试】
      uv run pytest tests/unit tests/integration tests/evaluation -q
      npm --prefix web test -- --run
      npm --prefix web run test:e2e       （自动起隔离环境，需已装前端依赖）
 
-更多说明见 README.md 与 docs/demo-usage-guide.md。
+更多说明见 README.md、docs/demo-usage-guide.md（操作手册）、
+docs/deployment-guide.md（部署）、docs/architecture.md（架构）。
 """
 
 

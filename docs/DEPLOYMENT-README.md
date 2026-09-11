@@ -1,0 +1,42 @@
+# Doc Agent 部署文档必读清单（文件地图）
+
+> 交付检查发现：文件与运行数据齐全，但「哪里找什么」需要一页索引。本文件是入口。
+
+## 一、我第一次拿到这个包，按这个顺序读
+
+| 序号 | 文件 | 读它做什么 |
+|---|---|---|
+| 1 | `启动说明.txt`（zip 根目录） | 解压后最先看：本地跑通四条命令 |
+| 2 | `README.md` | 项目是什么、60 秒启动、目录地图、关键约定 |
+| 3 | `docs/demo-usage-guide.md` | 三角色操作手册 + 完整演示脚本 |
+| 4 | `docs/deployment-guide.md` | **服务器/内网部署**：systemd、nginx、升级、备份、安全清单 |
+| 5 | `docs/architecture.md` | 接手开发用：模块地图、数据流、机制细节、扩展点 |
+| 6 | `docs/operations-runbook.md` | 运维排障：备份/恢复细节、迁移注意事项 |
+| 7 | `docs/delivery-2026-09-11-final.md` | 本次交付的改动全貌 + 验证证据 |
+| 8 | `docs/multi-role-migration.md` | 已知的下一轮需求（一人兼多角色的迁移蓝图） |
+
+## 二、部署形态速查
+
+| 场景 | 用哪节 | 关键差异 |
+|---|---|---|
+| 本机演示/试用 | `启动说明.txt` | `run_dev.py`（后端+worker）+ Vite dev |
+| 内网服务器单实例 | `docs/deployment-guide.md` §1-6 | systemd 两服务 + nginx + `npm run build` 静态产物 |
+| 升级已部署实例 | `docs/deployment-guide.md` §7 | 备份 → 拉代码 → `uv sync` → 重建前端 → 重启 |
+| 数据迁移/恢复 | `docs/operations-runbook.md` | `scripts/backup.py` / `restore.py`（停服务窗口） |
+| 离线内网准备 | `docs/deployment-guide.md` §3 | `prefetch_embeddings.py` 拷缓存 + `HF_HOME`；或 `EMBEDDING_ENABLED=false` |
+
+## 三、环境变量（唯一权威清单）
+
+`.env.example` 是全量清单与注释；生产必改四项：
+
+| 变量 | 为什么 |
+|---|---|
+| `ENVIRONMENT=production` | 触发 JWT 密钥强制校验（保护） |
+| `JWT_SECRET` | 默认值只许 dev/test |
+| `DATABASE_URL` | 绝对路径，放数据目录 |
+| `MODEL_PROVIDER` | 不设默认 fake（离线演示），接了真模型必须显式设置 |
+
+## 四、部署前安全检查（照抄执行）
+
+见 `docs/deployment-guide.md` §10 的 9 项清单（演示账号清除、`.env` 权限、
+端口暴露面、内网模型端点、备份演练、单实例边界等）。

@@ -24,8 +24,8 @@
 | P3 | Job 队列生产端 | 上传版本同事务入队 `knowledge.ingest`（幂等键=版本 ID，`app/knowledge/ingestion_queue.py`）；Job 面板 15s 轮询；E2E 隔离环境加入 worker 进程；3 个新集成测试 |
 | P3 | PDF 导出 | 文档正文页「导出 PDF」→ `window.print()` + `@media print` 仅打印标题与正文层（无新依赖） |
 | P3 | Agent 起草 | `draft_document` 工具（非 mutating，只产出文本）+ 离线演示链路（FakeProvider 识别起草意图）+ 前端「保存为草稿」按钮（回填编辑器，人工确认后走既有「保存为新版本」落库）+ prompt 能力边界（PROMPT_VERSION=quality-v3） |
-| 交付 | 文档 | `README.md`（60 秒启动/命令/目录地图）、`docs/demo-usage-guide.md`（三角色操作手册）、`docs/architecture.md`（架构与关键机制） |
-| 交付 | 打包 | `scripts/package_delivery.py` → zip（排除 .venv/node_modules/DB/storage/缓存/.env，附「启动说明.txt」） |
+| 交付 | 文档 | `README.md`（60 秒启动/命令/目录地图）、`docs/demo-usage-guide.md`（三角色操作手册）、`docs/architecture.md`（架构与关键机制）、`docs/deployment-guide.md`（服务器/内网部署：systemd/nginx/升级/备份/安全清单——交付检查时补充） |
+| 交付 | 打包 | `scripts/package_delivery.py` → zip（排除 .venv/node_modules/DB/storage/缓存/.env，附「启动说明.txt」；含锁文件 uv.lock/package-lock.json、全部 alembic 迁移、备份恢复脚本） |
 
 ## 二、代码可读性审查（新人视角）+ 顺手修复
 
