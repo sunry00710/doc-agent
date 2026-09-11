@@ -151,15 +151,18 @@ def search(
     keyword_backend = backend or SQLiteFtsBackend(session)
     if query.mode == "keyword":
         ranked = keyword_backend.search(query.query, frozenset(active_generation_ids), query.limit)
-    else:
+    elif query.mode == "dense":
+        # 明确要求向量检索但未配置 embedding：这是配置错误，直接报错
         if embedding_provider is None:
             raise AppError("index_failure", "Knowledge index is temporarily unavailable", 500)
-        dense_backend = DenseBackend(session, embedding_provider)
-        if query.mode == "dense":
-            ranked = dense_backend.search(query.query, frozenset(active_generation_ids), query.limit)
+        ranked = DenseBackend(session, embedding_provider).search(query.query, frozenset(active_generation_ids), query.limit)
+    else:
+        # hybrid：embedding 未启用时降级为纯关键词（配置关闭语义检索是合法选择，不应报错）
+        keyword = keyword_backend.search(query.query, frozenset(active_generation_ids), query.limit)
+        if embedding_provider is None:
+            ranked = keyword
         else:
-            keyword = keyword_backend.search(query.query, frozenset(active_generation_ids), query.limit)
-            dense = dense_backend.search(query.query, frozenset(active_generation_ids), query.limit)
+            dense = DenseBackend(session, embedding_provider).search(query.query, frozenset(active_generation_ids), query.limit)
             ranked = reciprocal_rank_fusion([keyword, dense])[:query.limit]
     hits: list[SearchHit] = []
     for item in ranked:

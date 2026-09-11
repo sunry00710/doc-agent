@@ -225,3 +225,43 @@ def test_failed_reindex_preserves_active_generation_and_fts(tmp_path: Path, monk
         assert session.execute(text("SELECT count(*) FROM knowledge_chunks_fts WHERE generation_id != :generation_id"), {"generation_id": first_generation}).scalar_one() == 0
         assert session.execute(text("SELECT count(*) FROM knowledge_chunks_fts WHERE generation_id = :generation_id"), {"generation_id": first_generation}).scalar_one() > 0
     engine.dispose()
+
+
+def test_hybrid_search_falls_back_to_keyword_without_embeddings(tmp_path: Path):
+    """EMBEDDING_ENABLED=false（内网离线部署）时，hybrid 必须降级为关键词，而不是 500。"""
+    engine = create_engine(f"sqlite:///{tmp_path / 'keyword-fallback.db'}")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE VIRTUAL TABLE knowledge_chunks_fts USING fts5(chunk_id UNINDEXED, generation_id UNINDEXED, text)"))
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    storage = FileStorage(Settings(environment="test", storage_dir=tmp_path / "storage"))
+    with factory() as session:
+        owner = User(username="offline-owner", password_hash=hash_password("correct"))
+        session.add(owner)
+        session.flush()
+        version = _setup(session, storage, owner, "# 结论\n\n供应商报价三家比对材料已归档。")
+        space = KnowledgeSpace(kind=KnowledgeSpaceKind.personal, owner_id=owner.id)
+        session.add(space)
+        session.flush()
+        ingest_version(session, storage, UUID(version.id), UUID(space.id))
+        session.commit()
+
+        hits = search(
+            session,
+            storage,
+            SearchQuery(query="供应商报价", mode="hybrid"),
+            owner,
+            embedding_provider=None,
+        )
+        assert [hit.quote for hit in hits] == ["供应商报价三家比对材料已归档。"]
+
+        with pytest.raises(AppError) as caught:
+            search(
+                session,
+                storage,
+                SearchQuery(query="供应商报价", mode="dense"),
+                owner,
+                embedding_provider=None,
+            )
+        assert caught.value.code == "index_failure"
+    engine.dispose()

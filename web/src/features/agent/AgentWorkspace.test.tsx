@@ -14,6 +14,29 @@ describe('AgentWorkspace', () => {
     expect(renderedArguments).toBeTruthy()
   })
 
+  it('restores a conversation for the same workspace after remounting', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<AgentWorkspace sessionKey="version-1" onSend={chat} onCitations={() => undefined} />)
+    await user.type(screen.getByLabelText('消息'), '检查文档')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+    await screen.findByText('安全回复')
+    unmount()
+
+    render(<AgentWorkspace sessionKey="version-1" onSend={chat} onCitations={() => undefined} />)
+    expect(screen.getByText('检查文档')).toBeTruthy()
+    expect(screen.getByText('安全回复')).toBeTruthy()
+  })
+
+  it('does not restore another user\'s conversation', () => {
+    sessionStorage.setItem('doc-agent-messages-user-a-version-1', JSON.stringify([
+      { id: 'message-1', role: 'user', text: '用户 A 的私密消息' },
+    ]))
+
+    render(<AgentWorkspace userId="user-b" sessionKey="version-1" onSend={chat} onCitations={() => undefined} />)
+
+    expect(screen.queryByText('用户 A 的私密消息')).toBeNull()
+  })
+
   it('asks for explicit confirmation before a Chinese mutating request', async () => {
     const user = userEvent.setup()
     render(<AgentWorkspace onSend={chat} onCitations={() => undefined} />)

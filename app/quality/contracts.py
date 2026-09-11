@@ -150,6 +150,8 @@ class ContractAssessment(BaseModel):
     requirement_id: str
     status: Literal["satisfied", "unsatisfied", "unknown"]
     evidence: str = ""
+    mandatory: bool = True
+    blocking: bool = True
 
 
 def assess_contract(revision: WritingContractRevision, source: str) -> list[ContractAssessment]:
@@ -157,5 +159,5 @@ def assess_contract(revision: WritingContractRevision, source: str) -> list[Cont
     for item in revision.requirements:
         requirement = Requirement.model_validate(item)
         status: Literal["satisfied", "unsatisfied", "unknown"] = "satisfied" if requirement.text in source else "unsatisfied"
-        assessments.append(ContractAssessment(requirement_id=requirement.id, status=status, evidence=requirement.text if status == "satisfied" else ""))
+        assessments.append(ContractAssessment(requirement_id=requirement.id, status=status, evidence=requirement.text if status == "satisfied" else "", mandatory=requirement.mandatory, blocking=requirement.mandatory and status != "satisfied"))
     return assessments

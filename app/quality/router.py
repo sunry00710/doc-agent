@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from typing import Annotated
 from uuid import UUID
 
@@ -78,7 +79,19 @@ def compare_versions(
     source_a = read_version(session, storage, UUID(document_a.id), version_a.number, user).decode("utf-8")
     source_b = read_version(session, storage, UUID(document_b.id), version_b.number, user).decode("utf-8")
     label = _COMPARISON_TYPE_LABELS.get(data.comparison_type, data.comparison_type)
-    result = {"changes": [{"category": "content", "summary": f"版本 A 共 {len(source_a)} 字，版本 B 共 {len(source_b)} 字", "version_a_id": str(data.version_a_id), "version_b_id": str(data.version_b_id), "citations": []}], "summary": f"{label}对比已完成", "citations": []}
+    changes = []
+    matcher = difflib.SequenceMatcher(a=source_a.splitlines(), b=source_b.splitlines())
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        category = {"insert": "addition", "delete": "deletion", "replace": "modification"}[tag]
+        old = "\\n".join(source_a.splitlines()[i1:i2])
+        new = "\\n".join(source_b.splitlines()[j1:j2])
+        summary = f"删除：{old}" if tag == "delete" else f"新增：{new}" if tag == "insert" else f"由“{old}”修改为“{new}”"
+        changes.append({"category": category, "summary": summary, "version_a_id": str(data.version_a_id), "version_b_id": str(data.version_b_id), "citations": []})
+    if not changes:
+        changes.append({"category": "unchanged", "summary": "两个版本内容一致", "version_a_id": str(data.version_a_id), "version_b_id": str(data.version_b_id), "citations": []})
+    result = {"changes": changes, "summary": f"{label}对比已完成，共发现 {len(changes)} 项变化", "citations": []}
     validated = compare_documents(ComparisonResult.model_validate(result), str(data.version_a_id), str(data.version_b_id))
     return ComparisonResponse(version_a_id=data.version_a_id, version_b_id=data.version_b_id, **validated.model_dump())
 

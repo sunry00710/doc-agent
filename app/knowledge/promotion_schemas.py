@@ -14,9 +14,6 @@ class PromotionCreate(BaseModel):
 
     version_id: UUID
     target_space_id: UUID
-    findings: list[dict] = Field(default_factory=list, max_length=1_000)
-    public_authority: bool = False
-    authority_level: int = Field(default=0, ge=0)
 
 
 class PromotionReview(BaseModel):
@@ -42,3 +39,4 @@ class PromotionRead(BaseModel):
     # 展示辅助字段：由路由联表填充，便于前端显示《文档标题》vN 而非裸 UUID
     document_title: str | None = None
     version_number: int | None = None
+    can_govern: bool = False

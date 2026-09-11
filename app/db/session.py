@@ -1,3 +1,4 @@
+import sqlite3
 from collections.abc import Generator
 
 from fastapi import Request
@@ -12,11 +13,18 @@ def create_database_engine(database_url: str) -> Engine:
     if is_sqlite:
 
         @event.listens_for(engine, "connect")
-        def enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+        def configure_sqlite(dbapi_connection, _connection_record) -> None:
             autocommit = dbapi_connection.autocommit
             dbapi_connection.autocommit = True
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            # WAL：允许 uvicorn 与独立 worker 并发读写，缓解「database is locked」。
+            # busy_timeout 让写锁竞争时等待而非立即失败。内存库（sqlite://）不支持 WAL，跳过。
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                pass
+            cursor.execute("PRAGMA busy_timeout=5000")
             cursor.close()
             dbapi_connection.autocommit = autocommit
 

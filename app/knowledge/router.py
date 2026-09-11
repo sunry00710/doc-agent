@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.documents.models import Document, DocumentVersion
 from app.documents.router import get_storage
 from app.documents.storage import FileStorage
-from app.identity.models import User
+from app.identity.models import Role, User
 from app.identity.router import get_current_user
 from app.knowledge.embeddings import FastEmbedProvider
 from app.knowledge.ingestion import ingest_version
@@ -29,23 +29,27 @@ from app.knowledge.schemas import (
 )
 from app.knowledge.search import search
 from app.projects.models import ProjectMember
-from app.projects.permissions import ProjectAction, require_project_permission
+from app.projects.permissions import (
+    ROLE_ACTIONS,
+    ProjectAction,
+    require_project_permission,
+)
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
-_embedding_provider = FastEmbedProvider()
 
 
-def _enriched_promotion(session: Session, request: PromotionRequest) -> PromotionRead:
+def _enriched_promotion(session: Session, request: PromotionRequest, governable_projects: set[str]) -> PromotionRead:
     """填充 document_title/version_number，前端可显示《标题》vN 而非裸 UUID。"""
     read = PromotionRead.model_validate(request)
     row = session.execute(
-        select(Document.title, DocumentVersion.number)
+        select(Document.title, DocumentVersion.number, Document.project_id)
         .join(DocumentVersion, DocumentVersion.document_id == Document.id)
         .where(DocumentVersion.id == request.version_id)
     ).first()
     if row is not None:
         read.document_title = row.title
         read.version_number = row.number
+        read.can_govern = row.project_id in governable_projects
     return read
 
 
@@ -81,8 +85,17 @@ def create_space(
     return KnowledgeSpaceRead.model_validate(space)
 
 
+def _embedding_provider_for(request: Request) -> FastEmbedProvider | None:
+    """按配置返回 embedding provider；embedding_enabled=false 时返回 None（纯关键词模式）。"""
+    settings = request.app.state.settings
+    if not settings.embedding_enabled:
+        return None
+    return FastEmbedProvider(model_name=settings.embedding_model)
+
+
 @router.post("/spaces/{space_id}/ingest", response_model=IngestResult, status_code=201)
 def ingest_into_space(
+    request: Request,
     space_id: UUID,
     data: SpaceIngest,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -101,8 +114,13 @@ def ingest_into_space(
     if document is None:
         raise AppError("not_found", "Document not found", 404)
     require_project_permission(UUID(document.project_id), ProjectAction.view, current_user, session)
-    # 与晋升激活路径一致：仅建 FTS 关键词索引；语义向量为可选增强，离线环境不强制下载模型
-    knowledge_document = ingest_version(session, storage, UUID(version.id), UUID(space.id))
+    knowledge_document = ingest_version(
+        session,
+        storage,
+        UUID(version.id),
+        UUID(space.id),
+        embedding_provider=_embedding_provider_for(request),
+    )
     knowledge_document.state = KnowledgeState.indexed
     session.commit()
     return IngestResult(
@@ -125,14 +143,22 @@ def list_promotions(
     if version_id is not None:
         statement = statement.where(PromotionRequest.version_id == version_id)
     requests = session.scalars(statement.order_by(PromotionRequest.created_at.desc())).all()
-    return PromotionList(items=[_enriched_promotion(session, item) for item in requests])
+    governable_projects = set()
+    if current_user.role in {Role.reviewer, Role.admin}:
+        memberships = session.scalars(select(ProjectMember).where(ProjectMember.user_id == current_user.id))
+        governable_projects = {
+            member.project_id for member in memberships
+            if ProjectAction.review in ROLE_ACTIONS[member.membership_role]
+        }
+    return PromotionList(items=[_enriched_promotion(session, item, governable_projects) for item in requests])
 
 
 @router.post("/search", response_model=list[SearchHit])
 def search_knowledge(
+    request: Request,
     query: SearchQuery,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[FileStorage, Depends(get_storage)],
 ) -> list[SearchHit]:
-    return search(session, storage, query, current_user, embedding_provider=_embedding_provider)
+    return search(session, storage, query, current_user, embedding_provider=_embedding_provider_for(request))

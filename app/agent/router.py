@@ -13,6 +13,8 @@ from app.agent.tools import ToolRegistry
 from app.core.errors import AppError
 from app.db.session import get_db
 from app.documents.models import Document, DocumentVersion
+from app.documents.router import get_storage
+from app.documents.storage import FileStorage
 from app.identity.models import User
 from app.identity.router import get_current_user
 from app.knowledge.agent_tools import register_knowledge_tools
@@ -70,7 +72,13 @@ def _authorize_knowledge_space(space: KnowledgeSpace, user: User, session: Sessi
     return space.kind in (KnowledgeSpaceKind.shared, KnowledgeSpaceKind.standard)
 
 
-def authorize_context(data: ChatRequest, user: User, session: Session, request_id: str | None) -> AgentContext:
+def authorize_context(
+    data: ChatRequest,
+    user: User,
+    session: Session,
+    storage: FileStorage,
+    request_id: str | None,
+) -> AgentContext:
     if data.project_id is not None:
         require_project_permission(data.project_id, ProjectAction.view, user, session)
     if data.document_version_id is not None:
@@ -101,6 +109,7 @@ def authorize_context(data: ChatRequest, user: User, session: Session, request_i
         request_id=request_id,
         session=session,
         actor=user,
+        storage=storage,
     )
 
 
@@ -109,11 +118,12 @@ def chat(
     data: ChatRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_db)],
+    storage: Annotated[FileStorage, Depends(get_storage)],
     request: Request,
     runner: Annotated[AgentRunner, Depends(get_runner)],
 ) -> ChatResponse:
     result = runner.run(
-        current_user, data.text, authorize_context(data, current_user, session, str(request.state.request_id))
+        current_user, data.text, authorize_context(data, current_user, session, storage, str(request.state.request_id))
     )
     if result.stop_reason == "provider_unavailable":
         raise AppError("provider_unavailable", "Model provider unavailable", 503, retryable=True)

@@ -10,6 +10,8 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from app.core.errors import AppError
+
 Authorizer = Callable[[Any, BaseModel], bool]
 _TRACE_OUTPUT_MAX_CHARS = 8_192
 _MISSING = object()
@@ -162,6 +164,10 @@ class ToolRegistry:
                 return None, "idempotency_in_progress", definition, model
         try:
             result = definition.handler(model, context)
+        except AppError as exc:
+            if definition.mutating:
+                self.idempotency_store.release(key, event)
+            return None, exc.code, definition, model
         except Exception:  # noqa: BLE001
             if definition.mutating:
                 self.idempotency_store.release(key, event)

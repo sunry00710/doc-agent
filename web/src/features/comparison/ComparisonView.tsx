@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { displayError } from '../../app/strings'
+import { displayError, displayLabel, zhCN } from '../../app/strings'
 import { api } from '../../api/client'
 import type { ApiError, DocumentVersion } from '../../api/client'
 
@@ -79,7 +79,7 @@ export function ComparisonView({ token, versions }: { token: string; versions: D
     {error && <p className="error" role="alert">{error}</p>}
     {result && <article className="comparison-result">
       <strong>{result.summary}</strong>
-      {result.changes.filter((change) => change.version_a_id === a && change.version_b_id === b).map((change, index) => <p key={index}><b>{change.category}</b> {change.summary}</p>)}
+      {result.changes.filter((change) => change.version_a_id === a && change.version_b_id === b).map((change, index) => <p key={index}><b>{displayLabel(zhCN.comparisonCategory, change.category)}</b> {change.summary}</p>)}
     </article>}
   </section>
 }

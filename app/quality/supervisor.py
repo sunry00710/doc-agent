@@ -14,6 +14,8 @@ class SupervisorConcern(BaseModel):
     requirement_id: str | None = None
     assigned_to: str = "author"
     evidence: str = ""
+    mandatory: bool = True
+    blocking: bool = True
 
 
 class SupervisorSimulation(BaseModel):
@@ -33,6 +35,8 @@ def simulate_supervisor_review(revision, source: str) -> SupervisorSimulation:
             summary=f"未满足写作要求：{item.requirement_id}",
             requirement_id=item.requirement_id,
             evidence=item.evidence,
+            mandatory=item.mandatory,
+            blocking=item.blocking,
         )
         for item in assessments
         if item.status != "satisfied"

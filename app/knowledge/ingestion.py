@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable
+from threading import Lock, RLock
 from uuid import UUID
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import event, func, select, text, update
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,55 @@ from app.knowledge.schemas import IngestionJobPayload
 
 _SQLITE_RETRY_ATTEMPTS = 5
 _SQLITE_RETRY_DELAY_SECONDS = 0.01
+_INGESTION_LOCKS_GUARD = Lock()
+_INGESTION_LOCKS: dict[tuple[str, str], tuple[RLock, int]] = {}
+
+
+def _acquire_ingestion_lock(
+    version_id: UUID,
+    space_id: UUID,
+) -> tuple[tuple[str, str], RLock]:
+    key = (str(version_id), str(space_id))
+    with _INGESTION_LOCKS_GUARD:
+        lock, users = _INGESTION_LOCKS.get(key, (RLock(), 0))
+        _INGESTION_LOCKS[key] = (lock, users + 1)
+    lock.acquire()
+    return key, lock
+
+
+def _release_ingestion_lock(
+    session: Session,
+    key: tuple[str, str],
+    lock: RLock,
+) -> None:
+    def release() -> None:
+        lock.release()
+        with _INGESTION_LOCKS_GUARD:
+            current_lock, users = _INGESTION_LOCKS[key]
+            if users == 1:
+                del _INGESTION_LOCKS[key]
+            else:
+                _INGESTION_LOCKS[key] = (
+                    current_lock,
+                    users - 1,
+                )
+
+    if session.in_transaction():
+        pending = session.info.setdefault("ingestion_lock_releases", [])
+        pending.append(release)
+        if not session.info.get("ingestion_lock_listener_registered"):
+            def on_transaction_end(_session: Session, transaction: object) -> None:
+                if getattr(transaction, "parent", None) is not None:
+                    return
+                callbacks = session.info.pop("ingestion_lock_releases", [])
+                session.info["ingestion_lock_listener_registered"] = False
+                for callback in callbacks:
+                    callback()
+
+            event.listen(session, "after_transaction_end", on_transaction_end)
+            session.info["ingestion_lock_listener_registered"] = True
+    else:
+        release()
 
 
 def _is_sqlite_busy(exc: OperationalError) -> bool:
@@ -155,10 +205,20 @@ def ingest_version(
             raise _index_failure(exc) from exc
         return document
 
+    lock_key, lock = _acquire_ingestion_lock(
+        version_id,
+        space_id,
+    )
     try:
         return _retry_sqlite_busy(index)
     except OperationalError as exc:
         raise _index_failure(exc) from exc
+    finally:
+        _release_ingestion_lock(
+            session,
+            lock_key,
+            lock,
+        )
 
 
 class JobClaimLostError(Exception):

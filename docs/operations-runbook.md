@@ -1,0 +1,79 @@
+# Doc Agent 运维手册（本地 / 内网单实例）
+
+适用范围：当前架构（SQLite + 本地 `storage/`，后端 + 独立 Worker 单实例）。
+不覆盖：多实例部署、PostgreSQL 迁移、公网生产（判断见
+`docs/demo-handoff-2026-09-11-final.md` 第七节）。
+
+## 一、备份
+
+```bash
+uv run python scripts/backup.py                 # 备份到 backups/
+uv run python scripts/backup.py --out D:/bak    # 指定输出目录
+```
+
+| 项 | 说明 |
+|---|---|
+| 产物 | `backups/doc-agent-<UTC 时间戳>/`，内含 `doc_agent.db`、`storage/`、`manifest.json` |
+| 是否停机 | 不需要。使用 SQLite 在线备份 API，WAL 模式下仍是一致快照 |
+| 重复执行 | 同一秒内重复备份会自动加 `-2`、`-3` 后缀，不覆盖已有归档 |
+| 建议时机 | 批量导入、晋升激活、改配置重启之前 |
+
+## 二、恢复
+
+```bash
+uv run python scripts/restore.py --from backups/doc-agent-20260911-120000 --dry-run
+uv run python scripts/restore.py --from backups/doc-agent-20260911-120000            # 目标不存在时直接恢复
+uv run python scripts/restore.py --from backups/doc-agent-20260911-120000 --force    # 覆盖当前数据
+```
+
+步骤与约束：
+
+1. 先停止后端与 Worker（`run_dev.py` 前台 `Ctrl+C`），确认 8000 端口已释放；
+2. `--dry-run` 只打印将执行的动作，不写盘；
+3. 目标 `doc_agent.db` 已存在且未加 `--force` 时脚本直接拒绝，不会静默覆盖；
+4. 加 `--force` 时，现有 `doc_agent.db` / `storage/` 会先另存为
+   `*.pre-restore-<时间戳>`，再写入归档内容；
+5. 恢复后自动清理目标库残留的 `doc_agent.db-wal` / `-shm`，并执行
+   `PRAGMA integrity_check`；归档库自身校验失败时脚本拒绝恢复；
+6. 重启服务后用 `curl http://127.0.0.1:8000/api/health` 确认 `{"status":"ready"}`。
+
+## 三、数据库迁移
+
+```bash
+uv run alembic upgrade head                       # 日常升级（run_dev.py 启动时也会执行）
+uv run alembic current                            # 查看当前 revision
+```
+
+全新库自检（不影响现有演示库）：
+
+```bash
+$env:DATABASE_URL="sqlite:///<临时路径>.db"; uv run alembic upgrade head
+```
+
+已知情况：
+
+- `alembic/env.py` 已补齐 `app.quality.models`、`app.reviews.models` 导入，并过滤
+  FTS5 影子表（`knowledge_chunks_fts*`）。此前缺失会导致 autogenerate 输出
+  「删除 `writing_contracts` / `document_reviews` 等 5 张表」的危险指令。
+- `alembic check` 仍有噪声，不能当作干净通过：模型 `SqlEnum(native_enum=False)`
+  与迁移中的 `VARCHAR` 类型比较差异、唯一约束/索引命名差异（同列不同名），以及
+  模型声明的复合外键 `active_generation_belongs_to_document` 未落到数据库。
+  最后一项属真实漂移，是否补迁移需单独决策；未补之前不要依赖该外键约束做完整性兜底。
+- 工作区内 `0001/0006/0007` 三个迁移文件被修改过（仅导入/格式），对已经执行过迁移的
+  库不会重跑；不要在已部署库上直接改历史迁移来“修 schema”。
+
+## 四、提交前自检
+
+```bash
+uv run ruff check app scripts tests
+uv run pytest tests/integration tests/unit -q
+npm --prefix web test -- --run
+npm --prefix web run test:e2e
+```
+
+## 五、本地工件
+
+以下内容属本机工件，已在 `.gitignore` 中忽略，不要提交或删除：
+
+`doc_agent.db`、`doc_agent.db-*`（WAL/SHM）、`storage/`、`backups/`、`web/.edge-profile/`、
+`web/playwright-report/`、`web/test-results/`。

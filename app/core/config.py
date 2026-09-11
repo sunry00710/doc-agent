@@ -11,13 +11,33 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "staging", "production"] = "development"
     database_url: str = "sqlite:///./doc_agent.db"
     jwt_secret: SecretStr = SecretStr(DEVELOPMENT_JWT_SECRET)
-    model_provider: str = "anthropic"
+    # 模型接入：fake=本地演示 | self=自用 AI（OpenAI 兼容） | internal=集团内网 API
+    model_provider: Literal["fake", "self", "internal"] = "fake"
+    # 自用 AI 接口（如 DeepSeek，OpenAI 兼容协议）
+    self_ai_endpoint: str = ""
+    self_ai_api_key: SecretStr = SecretStr("")
+    self_ai_model: str = ""
+    # 集团内网 API 接口（协议未定，接入时确认；当前与自用同为 OpenAI 兼容假设）
+    internal_api_endpoint: str = ""
+    internal_api_key: SecretStr = SecretStr("")
+    internal_api_model: str = ""
+    provider_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    # 语义检索向量：默认开启。离线/无模型缓存的内网环境可设 false 退回纯关键词，
+    # 此时前端 hybrid 请求会收到 degraded 标记（不再静默假装有语义检索）。
+    embedding_enabled: bool = True
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
     storage_dir: Path = Path("./storage")
+    # 服务监听地址：dev 默认本机；内网部署改 BACKEND_HOST=0.0.0.0 供其他机器访问
+    backend_host: str = "127.0.0.1"
+    backend_port: int = Field(default=8000, ge=1, le=65535)
+    frontend_host: str = "127.0.0.1"
+    frontend_port: int = Field(default=5173, ge=1, le=65535)
     max_upload_bytes: int = 10 * 1024 * 1024
     job_heartbeat_seconds: int = Field(default=30, ge=1, le=3600)
     job_stale_after_seconds: int = Field(default=120, ge=2, le=86_400)
     job_max_attempts: int = Field(default=3, ge=1, le=100)
     job_poll_interval_seconds: float = Field(default=1.0, gt=0, le=60)
+    cors_allowed_origins: list[str] = Field(default_factory=list)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

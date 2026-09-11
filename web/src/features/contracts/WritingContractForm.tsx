@@ -124,7 +124,7 @@ export function WritingContractForm({ token, documentId, documentType, canConfir
   return <section className="feature-panel contract-panel">
     <p className="eyebrow">写作契约</p>
     <h2>{contract ? `修订版 ${contract.active_revision}${contract.revision.reviewer_confirmed ? ' · 已确认' : ' · 待确认'}` : '创建写作契约'}</h2>
-    <p className="muted">契约在写作前对齐要求；保存后可对当前选中版本运行“模拟主管评审”，逐条核对要求是否满足。</p>
+    <p className="muted">写作要求分为两类：必需满足项未满足会阻断质量门；建议补充项不会阻断提交，但会作为评审关注点。</p>
     <div className="contract-fields">
       {(['domain', 'document_type', 'subject_organization', 'reporting_period', 'purpose', 'audience'] as const).map((field) => (
         <label key={field}>{FIELD_LABELS[field]}<input value={String(form[field])} onChange={(event) => update(field, event.target.value)} /></label>
@@ -132,10 +132,11 @@ export function WritingContractForm({ token, documentId, documentType, canConfir
     </div>
     <div className="requirement-editor">
       <h3>写作要求（逐条核对）</h3>
+      <p className="muted">必需满足项会阻断质量门；建议补充项不会阻断提交。</p>
       {form.requirements.length === 0 && <p className="muted">尚未添加要求。示例：“审计范围”“采购比价”“整改责任清单”。</p>}
       {form.requirements.map((requirement, index) => <div className="requirement-row" key={requirement.id}>
         <input aria-label={`要求 ${index + 1} 内容`} value={requirement.text} placeholder="要求内容（须在正文中出现的表述）" onChange={(event) => updateRequirement(index, { text: event.target.value })} />
-        <label className="mandatory-toggle"><input type="checkbox" checked={requirement.mandatory} onChange={(event) => updateRequirement(index, { mandatory: event.target.checked })} />必须</label>
+        <label className="mandatory-toggle"><input type="checkbox" checked={requirement.mandatory} onChange={(event) => updateRequirement(index, { mandatory: event.target.checked })} />{requirement.mandatory ? '必需满足' : '建议补充'}</label>
         <button type="button" className="remove-requirement" onClick={() => removeRequirement(index)} aria-label={`删除要求 ${index + 1}`}>删除</button>
       </div>)}
       <button type="button" onClick={addRequirement}>添加要求</button>
@@ -150,18 +151,18 @@ export function WritingContractForm({ token, documentId, documentType, canConfir
       <button type="button" onClick={() => void simulate()} disabled={!contract || !source || simulating}>
         {!contract ? '请先保存契约' : !source ? '请先选择版本' : simulating ? '模拟中…' : '运行模拟主管评审'}
       </button>
-      {simulation && <div className="simulation-result">
-        <p><strong>要求核对（{simulation.assessments.filter((item) => item.status === 'satisfied').length}/{simulation.assessments.length} 已满足）：</strong></p>
+        {simulation && <div className="simulation-result">
+          <p><strong>要求核对（{simulation.assessments.filter((item) => item.status === 'satisfied').length}/{simulation.assessments.length} 已满足）：</strong></p>
         <ul className="assessment-list">
           {simulation.assessments.map((assessment) => <li key={assessment.requirement_id} className={`assessment ${assessment.status}`}>
-            <span className="assessment-status">{ASSESSMENT_LABELS[assessment.status] ?? assessment.status}</span>
+            <span className="assessment-status">{assessment.blocking ? '必需' : '建议'}</span><span className={`assessment-status assessment-result-${assessment.status}`}>{ASSESSMENT_LABELS[assessment.status] ?? assessment.status}</span>
             <span className="assessment-text">{form.requirements.find((item) => item.id === assessment.requirement_id)?.text ?? assessment.requirement_id}</span>
           </li>)}
         </ul>
         {simulation.concerns.length > 0
           ? <>
-              <p><strong>主管关注点（{simulation.concerns.length} 项，须在提交前处理）：</strong></p>
-              <ul className="concern-list">{simulation.concerns.map((concern) => <li key={concern.id}>{concern.summary}</li>)}</ul>
+              <p><strong>主管关注点（{simulation.concerns.length} 项，其中 {simulation.concerns.filter((concern) => concern.blocking).length} 项阻断质量门）：</strong></p>
+              <ul className="concern-list">{simulation.concerns.map((concern) => <li key={concern.id} className={concern.blocking ? 'blocking' : 'advisory'}><strong>{concern.blocking ? '必需满足' : '建议补充'}</strong> {concern.summary}</li>)}</ul>
             </>
           : <p className="success">所有要求均已满足，可以提交评审。</p>}
       </div>}

@@ -5,13 +5,16 @@ __pycache__/
 
 # 本地数据与密钥
 doc_agent.db
+doc_agent.db-*
 storage/
 .env
+backups/
 
 # 前端生成物
 web/node_modules/
 web/dist/
 web/.edge-profile/
 
-# 演示截图（本地工件，不入库）
-web/demo-*.png
+# E2E 运行工件
+web/playwright-report/
+web/test-results/

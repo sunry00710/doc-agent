@@ -196,7 +196,10 @@ def test_heartbeat_requires_current_claim_token(db_session, owner):
 
 
 def test_worker_renews_heartbeat_while_handler_runs(tmp_path: Path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'heartbeat.db'}", connect_args={"timeout": 5})
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'heartbeat.db'}",
+        connect_args={"timeout": 5, "check_same_thread": False},
+    )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     with factory() as session:

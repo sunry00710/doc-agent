@@ -99,6 +99,15 @@ def transition(
     review = _review(session, review_id, actor, action)
     _check_revision(review, expected_revision)
     validate_transition(review.state, state)
+    if state == "resubmitted":
+        latest = session.scalar(
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == review.document_id)
+            .order_by(DocumentVersion.number.desc())
+        )
+        if latest is None or latest.id == review.version_id:
+            raise AppError("validation_error", "Resubmission requires a newer document version", 422)
+        review.version_id = latest.id
     if state in _REVIEWER_TRANSITIONS:
         _require_assigned_reviewer(review, actor)
     result = session.execute(
@@ -117,6 +126,20 @@ def transition(
             retryable=True,
         )
     session.refresh(review)
+    return review
+
+def request_changes(session: Session, review_id: UUID, text: str, source_range: dict[str, int], expected_revision: int, actor: User) -> DocumentReview:
+    review = _review(session, review_id, actor, ProjectAction.review)
+    _check_revision(review, expected_revision)
+    _require_assigned_reviewer(review, actor)
+    validate_transition(review.state, "changes_requested")
+    start, end = source_range.get("start"), source_range.get("end")
+    if not isinstance(start, int) or not isinstance(end, int) or start < 0 or end <= start:
+        raise AppError("validation_error", "Invalid comment source range", 422)
+    session.add(ReviewComment(review_id=review.id, version_id=review.version_id, source_range={"start": start, "end": end}, text=text.strip(), created_by=actor.id))
+    review.state = "changes_requested"
+    review.workflow_revision = expected_revision + 1
+    session.flush()
     return review
 
 

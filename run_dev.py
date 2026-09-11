@@ -13,6 +13,8 @@ from alembic.config import Config
 from alembic import command
 from app.core.config import Settings
 from app.db.session import create_database_engine
+from app.providers.base import ProviderError
+from app.providers.factory import build_provider
 
 ROOT = Path(__file__).resolve().parent
 
@@ -23,7 +25,7 @@ def migrate(settings: Settings) -> None:
     command.upgrade(config, "head")
 
 
-def _backend_command() -> list[str]:
+def _backend_command(settings: Settings) -> list[str]:
     return [
         sys.executable,
         "-m",
@@ -31,9 +33,9 @@ def _backend_command() -> list[str]:
         "app.main:create_app",
         "--factory",
         "--host",
-        "127.0.0.1",
+        settings.backend_host,
         "--port",
-        "8000",
+        str(settings.backend_port),
     ]
 
 
@@ -53,18 +55,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     settings = Settings()
-    if settings.model_provider.lower() not in {
-        "fake",
-        "anthropic",
-        "openai",
-        "openai-compatible",
-    }:
-        raise SystemExit("Unsupported MODEL_PROVIDER")
+    try:
+        build_provider(settings)
+    except ProviderError as error:
+        raise SystemExit(f"Provider 装配失败：{error}") from error
     if not args.no_migrate:
         migrate(settings)
     processes: list[subprocess.Popen[bytes]] = []
     try:
-        backend = subprocess.Popen(_backend_command(), cwd=ROOT, env=os.environ.copy())
+        backend = subprocess.Popen(_backend_command(settings), cwd=ROOT, env=os.environ.copy())
         processes.append(backend)
         if not args.no_worker:
             worker = subprocess.Popen(
@@ -72,9 +71,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             processes.append(worker)
         print("Doc Agent services started", flush=True)
-        print("Backend:  http://127.0.0.1:8000", flush=True)
+        print(f"Backend:  http://{settings.backend_host}:{settings.backend_port}", flush=True)
         print(
-            "Frontend: http://127.0.0.1:5173 (run `npm --prefix web run dev`)",
+            f"Frontend: http://{settings.frontend_host}:{settings.frontend_port} (run `npm --prefix web run dev`)",
             flush=True,
         )
         print("Press Ctrl+C to stop backend and worker.", flush=True)

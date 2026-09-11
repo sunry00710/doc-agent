@@ -39,6 +39,7 @@ class AgentContext:
     deadline: float | None = None
     session: object | None = None
     actor: User | None = None
+    storage: object | None = None
 
 
 class ToolTrace(BaseModel):

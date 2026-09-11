@@ -49,6 +49,12 @@ export const zhCN = {
     shared: '共享知识库',
     standard: '规范知识库',
   },
+  comparisonCategory: {
+    addition: '新增',
+    deletion: '删除',
+    modification: '修改',
+    unchanged: '无变化',
+  },
 } as const
 
 export function displayLabel(

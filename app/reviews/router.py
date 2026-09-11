@@ -10,6 +10,7 @@ from app.identity.router import get_current_user
 from app.reviews.schemas import (
     CommentCreate,
     CommentRead,
+    RequestChanges,
     ResponseConfirm,
     ResponseCreate,
     ResponseRead,
@@ -25,6 +26,7 @@ from app.reviews.service import (
     confirm_comment_response,
     create_review,
     list_reviews,
+    request_changes,
     respond_to_comment,
     review_detail,
     transition,
@@ -90,6 +92,12 @@ def change_state(
     session: Annotated[Session, Depends(get_db)],
 ) -> ReviewRead:
     result = transition(session, review_id, data.state, data.expected_revision, user)
+    session.commit()
+    return result
+
+@router.post("/{review_id}/request-changes", response_model=ReviewRead)
+def request_changes_route(review_id: UUID, data: RequestChanges, user: Annotated[User, Depends(get_current_user)], session: Annotated[Session, Depends(get_db)]) -> ReviewRead:
+    result = request_changes(session, review_id, data.text, data.source_range, data.expected_revision, user)
     session.commit()
     return result
 

@@ -20,6 +20,12 @@ class ReviewTransition(BaseModel):
     state: str
     expected_revision: int = Field(ge=0)
 
+class RequestChanges(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1)
+    source_range: dict[str, int] = Field(default_factory=lambda: {"start": 0, "end": 1})
+    expected_revision: int = Field(ge=0)
+
 
 class CommentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")

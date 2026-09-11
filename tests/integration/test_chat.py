@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from uuid import UUID
 
@@ -6,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.agent.messages import AssistantMessage
+from app.agent.messages import AssistantMessage, ToolCall
 from app.core.config import Settings
 from app.core.security import hash_password
 from app.db.base import Base
@@ -132,3 +133,72 @@ def test_chat_requires_document_project_access(client, db_session):
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "permission_denied"
     UUID(version["id"])
+
+
+def test_quality_tool_binds_to_selected_document_version(client, db_session):
+    """B 回归：工具必须校验会话绑定的版本正文，而不是模型自带的 source。"""
+    owner = user_factory(db_session, "binding-owner")
+    project = project_for(db_session, owner)
+    headers = auth_headers(client, owner.username)
+    document = client.post(
+        "/api/documents",
+        json={"project_id": project.id, "title": "整改报告", "domain": "finance", "document_type": "report"},
+        headers=headers,
+    ).json()
+    content = "# 整改报告\n供应商报价三家比对材料已归档。\n"
+    version = client.post(
+        f"/api/documents/{document['id']}/versions",
+        files={"file": ("report.md", content.encode("utf-8"), "text/markdown")},
+        headers=headers,
+    ).json()
+
+    evidence = "供应商报价三家比对材料已归档。"
+    start = content.index(evidence)
+    arguments = {
+        "source": "模型自带的无关正文。",
+        "response": {
+            "findings": [
+                {
+                    "id": "finding-1",
+                    "category": "evidence",
+                    "severity": "medium",
+                    "start_offset": start,
+                    "end_offset": start + len(evidence),
+                    "evidence": evidence,
+                    "explanation": "缺少材料归档位置",
+                    "suggested_action": "补充归档位置",
+                    "citation_ids": [],
+                    "confidence": 0.8,
+                    "mandatory": False,
+                    "human_review_required": False,
+                }
+            ],
+            "summary": {"total": 1, "low": 0, "medium": 1, "high": 0},
+            "coverage": 1.0,
+        },
+    }
+    client.app.state.agent_provider = FakeProvider(
+        [
+            AssistantMessage(
+                tool_calls=[
+                    ToolCall(
+                        id="call-binding",
+                        name="check_document",
+                        arguments=json.dumps(arguments, ensure_ascii=False),
+                    )
+                ]
+            ),
+            AssistantMessage(content="检查完成"),
+        ]
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={"text": "请检查当前文档", "project_id": project.id, "document_version_id": version["id"]},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    trace = response.json()["traces"][0]
+    assert trace["status"] == "succeeded"
+    assert trace["result"]["findings"][0]["evidence"] == evidence

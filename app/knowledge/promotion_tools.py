@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.agent.loop import AgentContext
 from app.agent.tools import ToolDefinition, ToolRegistry
+from app.documents.storage import FileStorage
 from app.identity.models import User
 from app.knowledge.promotion_service import request_promotion
-from app.quality.gates import evaluate_quality_gate
 
 
 class PromotionToolInput(BaseModel):
@@ -18,9 +18,6 @@ class PromotionToolInput(BaseModel):
 
     version_id: UUID
     target_space_id: UUID
-    findings: list[dict] = Field(default_factory=list, max_length=1_000)
-    public_authority: bool = False
-    authority_level: int = Field(default=0, ge=0)
 
 
 class PromotionToolOutput(BaseModel):
@@ -34,16 +31,21 @@ class PromotionToolOutput(BaseModel):
 def _promotion_handler(data: PromotionToolInput, context: AgentContext) -> dict[str, object]:
     session = getattr(context, "session", None)
     actor = getattr(context, "actor", None)
-    if not isinstance(session, Session) or not isinstance(actor, User):
+    storage = getattr(context, "storage", None)
+    if not isinstance(session, Session) or not isinstance(actor, User) or not isinstance(storage, FileStorage):
         raise TypeError("Promotion requires an authenticated database context")
-    gate = evaluate_quality_gate(data.findings)
-    request = request_promotion(session, data.version_id, data.target_space_id, actor, gate, public_authority=data.public_authority, authority_level=data.authority_level)
+    request = request_promotion(session, data.version_id, data.target_space_id, actor, storage)
     session.commit()
     return {"request_id": request.id, "status": request.status.value, "quality_status": request.quality_status}
 
 
 def _authorize_promotion(context: Any, _data: PromotionToolInput) -> bool:
-    return isinstance(context, AgentContext) and getattr(context, "session", None) is not None and getattr(context, "actor", None) is not None
+    return (
+        isinstance(context, AgentContext)
+        and getattr(context, "session", None) is not None
+        and getattr(context, "actor", None) is not None
+        and isinstance(getattr(context, "storage", None), FileStorage)
+    )
 
 
 def register_promotion_tools(registry: ToolRegistry) -> None:

@@ -27,5 +27,6 @@ PYTHONPATH=. .venv/Scripts/python.exe scripts/seed_demo.py
 ## 当前限制
 
 - Agent 使用本地 FakeProvider，只用于演示，不会调用真实模型。
-- 演示数据包含项目、文档、版本和共享知识库；复杂的评审、返修、批准、晋升流程仍需通过已有 API 或进一步补充 UI 操作。
+- 演示数据包含项目、文档、版本和共享知识库；评审、返修、批准、晋升与撤销已可在“评审”“知识治理”界面完成闭环，实测记录见 `docs/demo-handoff-2026-09-11-final.md`。
+- 备份与恢复流程见 `docs/operations-runbook.md`（含 `scripts/backup.py` / `scripts/restore.py` 用法）。
 - 本地 SQLite、开发 JWT 密钥和演示账号不适用于生产环境。

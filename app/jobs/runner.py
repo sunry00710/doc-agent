@@ -113,14 +113,18 @@ class Worker:
             try:
                 result = handler.run(payload)
             except RetryableJobError:
-                fail_job(session, job, retryable=True, max_attempts=self.max_attempts, retry_delay_seconds=self.retry_delay_seconds, now=self.clock())
+                fail_result = (True, self.retry_delay_seconds)
             except Exception:  # noqa: BLE001 - worker converts handler failures to safe job state
-                fail_job(session, job, retryable=False, max_attempts=self.max_attempts, retry_delay_seconds=0, now=self.clock())
+                fail_result = (False, 0)
             else:
-                finish_job(session, job.id, claim_token, result, now=self.clock())
+                fail_result = None
             finally:
                 stop_heartbeat.set()
                 heartbeat_thread.join()
+            if fail_result is None:
+                finish_job(session, job.id, claim_token, result, now=self.clock())
+            else:
+                fail_job(session, job, retryable=fail_result[0], max_attempts=self.max_attempts, retry_delay_seconds=fail_result[1], now=self.clock())
         session.commit()
         return True
 

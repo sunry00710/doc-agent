@@ -12,24 +12,18 @@ type ReviewPanelProps = {
   canReview: boolean
   currentUserId: string
   onRefresh: () => Promise<void>
-  onCreateReview: () => Promise<void>
 }
 
 type NextState = { state: string; label: string; reviewerOnly: boolean }
 
 // 与后端 app/reviews/workflow.py 的状态机保持一致
 const NEXT_STATES: Record<string, NextState[]> = {
-  draft: [{ state: 'submitted', label: '提交评审', reviewerOnly: false }],
   submitted: [{ state: 'in_review', label: '开始评审', reviewerOnly: true }],
   in_review: [
     { state: 'changes_requested', label: '请求修改', reviewerOnly: true },
     { state: 'approved', label: '批准', reviewerOnly: true },
   ],
-  changes_requested: [{ state: 'resubmitted', label: '重新提交', reviewerOnly: false }],
   resubmitted: [{ state: 'in_review', label: '继续评审', reviewerOnly: true }],
-  approved: [{ state: 'promotion_pending', label: '转入晋升', reviewerOnly: true }],
-  promotion_pending: [{ state: 'indexed', label: '确认已索引', reviewerOnly: true }],
-  indexed: [{ state: 'archived', label: '归档', reviewerOnly: true }],
   archived: [],
 }
 
@@ -73,13 +67,14 @@ function mark(key: number, text: string) {
   return <mark key={key}>{text}</mark>
 }
 
-export function ReviewPanel({ token, review, source, selectedVersion, canReview, currentUserId, onRefresh, onCreateReview }: ReviewPanelProps) {
+export function ReviewPanel({ token, review, source, selectedVersion, canReview, currentUserId, onRefresh }: ReviewPanelProps) {
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [conflict, setConflict] = useState(false)
   const [busy, setBusy] = useState(false)
   const [selectionError, setSelectionError] = useState('')
   const [lastSelection, setLastSelection] = useState<{ start: number; end: number } | null>(null)
+  const [changeDraft, setChangeDraft] = useState('')
   const sourceRef = useRef<HTMLDivElement>(null)
 
   // 缓存正文中最近一次有效选区：焦点切到评论输入框会折叠原生选区，提交时优先使用缓存
@@ -99,6 +94,9 @@ export function ReviewPanel({ token, review, source, selectedVersion, canReview,
   const highlighted = comments.filter((comment) => comment.source_range.end <= source.length)
   const nextStates = review ? NEXT_STATES[review.state] ?? [] : []
   const commentable = Boolean(review) && COMMENTABLE_STATES.has(review!.state)
+  const assignedToMe = canReview && review?.reviewer_id === currentUserId
+  const boundSourceReady = Boolean(review && selectedVersion?.id === review.version_id)
+  useEffect(() => { setLastSelection(null) }, [review?.version_id, source])
 
   async function handleApiError(reason: unknown, fallback: string, onConflict?: () => Promise<void>) {
     const apiError = reason as Partial<ApiError>
@@ -111,7 +109,7 @@ export function ReviewPanel({ token, review, source, selectedVersion, canReview,
   }
 
   async function transition(state: string) {
-    if (!review || busy) return
+    if (!review || !assignedToMe || !boundSourceReady || busy) return
     setError('')
     setBusy(true)
     try {
@@ -124,21 +122,18 @@ export function ReviewPanel({ token, review, source, selectedVersion, canReview,
     }
   }
 
-  async function createReview() {
-    if (busy) return
-    setError('')
-    setBusy(true)
+  async function requestChanges() {
+    if (!review || !assignedToMe || !boundSourceReady || !source || !changeDraft.trim() || busy) return
+    setBusy(true); setError('')
     try {
-      await onCreateReview()
-    } catch (reason) {
-      await handleApiError(reason, '评审创建失败。')
-    } finally {
-      setBusy(false)
-    }
+      const offsets = lastSelection ?? { start: 0, end: source.length }
+      await api.requestChanges(token, review.id, changeDraft, offsets, review.workflow_revision)
+      setChangeDraft(''); setLastSelection(null); await onRefresh()
+    } catch (reason) { await handleApiError(reason, '请求修改失败。', onRefresh) } finally { setBusy(false) }
   }
 
   async function selfAssign() {
-    if (!review || busy) return
+    if (!review || !canReview || review.reviewer_id || review.state !== 'submitted' || busy) return
     setError('')
     setBusy(true)
     try {
@@ -153,7 +148,7 @@ export function ReviewPanel({ token, review, source, selectedVersion, canReview,
 
   async function comment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!review || !draft.trim() || busy) return
+    if (!review || !assignedToMe || !boundSourceReady || !draft.trim() || busy) return
     setError('')
     setSelectionError('')
     const offsets = (sourceRef.current ? selectionOffsets(sourceRef.current) : null) ?? lastSelection
@@ -178,17 +173,19 @@ export function ReviewPanel({ token, review, source, selectedVersion, canReview,
     <p className="eyebrow">评审</p>
     <h2>{review ? displayLabel(zhCN.reviewState, review.state) : '未发起评审'}</h2>
     {review
-      ? <p className="muted">绑定版本：{selectedVersion ? `v${selectedVersion.number}` : `${review.version_id.slice(0, 8)}…`} · 工作流修订号：{review.workflow_revision}{review.reviewer_id ? (review.reviewer_id === currentUserId ? ' · 你是本评审的评审员' : ' · 评审员已分配') : ' · 尚未分配评审员'}</p>
+      ? <p className="muted">绑定版本：{selectedVersion && selectedVersion.id === review.version_id ? `v${selectedVersion.number}` : `${review.version_id.slice(0, 8)}…`} · 工作流修订号：{review.workflow_revision}{review.reviewer_id ? (review.reviewer_id === currentUserId ? ' · 你是本评审的评审员' : ' · 评审员已分配') : ' · 尚未分配评审员'}</p>
       : selectedVersion
         ? <p className="muted">当前选中 v{selectedVersion.number}，可对该版本发起评审。</p>
         : <p className="muted">请先在左侧选择一个不可变版本。</p>}
-    {!review && selectedVersion && <button type="button" onClick={() => void createReview()} disabled={busy}>{busy ? '创建中…' : '对当前版本发起评审'}</button>}
-    {canReview && review && !review.reviewer_id && <div className="action-row"><button type="button" onClick={() => void selfAssign()} disabled={busy}>由我担任评审员</button></div>}
-    {nextStates.length > 0 && <div className="action-row" aria-label="评审流转">
-      {nextStates.map((next) => (canReview || !next.reviewerOnly) && <button type="button" key={next.state} onClick={() => void transition(next.state)} disabled={busy}>{next.label}</button>)}
+    {canReview && review?.state === 'submitted' && !review.reviewer_id && <div className="action-row"><button type="button" onClick={() => void selfAssign()} disabled={busy}>领取评审任务</button></div>}
+    {assignedToMe && boundSourceReady && nextStates.length > 0 && <div className="action-row" aria-label="评审流转">
+      {nextStates.map((next) => (canReview || !next.reviewerOnly) && next.state !== 'changes_requested' && <button type="button" key={next.state} onClick={() => void transition(next.state)} disabled={busy}>{next.label}</button>)}
+      {canReview && review?.state === 'in_review' && <><textarea aria-label="请求修改意见" value={changeDraft} onChange={(e) => setChangeDraft(e.target.value)} placeholder="填写请求修改意见" disabled={busy} /><button type="button" onClick={() => void requestChanges()} disabled={!changeDraft.trim() || busy}>请求修改</button></>}
     </div>}
-    {review?.state === 'promotion_pending' && <p className="muted">评审已通过。请前往“知识库”页对该版本发起晋升申请，获批并激活索引后再回到此处确认。</p>}
-    {review && source && <>
+    {review?.state === 'approved' && <p className="muted">评审已通过。</p>}
+    {review?.state === 'changes_requested' && <p className="muted">等待作者返修。</p>}
+    {review && !boundSourceReady && <p role="status">正在加载绑定版本…</p>}
+    {review && boundSourceReady && source && <>
       <p className="muted">正文与评论锚点（选中文字后添加评论）：</p>
       <div className="source-text review-source" ref={sourceRef}>{renderHighlighted(source, comments)}</div>
     </>}
@@ -198,7 +195,7 @@ export function ReviewPanel({ token, review, source, selectedVersion, canReview,
       <p>{comment.text}</p>
       <span>锚点 {comment.source_range.start}–{comment.source_range.end}</span>
     </article>)}
-    {canReview && review && (commentable
+    {assignedToMe && boundSourceReady && review && (commentable
       ? <form className="comment-form" onSubmit={comment}>
           <label htmlFor="review-comment">审核意见（针对正文中选中的文字）</label>
           {lastSelection && <p className="muted">当前锚点文字：<q>{source.slice(lastSelection.start, lastSelection.end)}</q>（{lastSelection.start}–{lastSelection.end}）</p>}
