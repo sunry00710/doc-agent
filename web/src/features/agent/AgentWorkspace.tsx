@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { ChatResponse, Citation, ToolTrace as Trace } from '../../api/client'
 import { ToolTrace } from './ToolTrace'
+import { citationsFromTraces } from '../citations/traceCitations'
 
 type Message = { id: string; role: 'user' | 'assistant'; text: string; traces?: Trace[] }
 
@@ -102,7 +103,7 @@ export function AgentWorkspace({ onSend, onCitations, context, sessionKey, userI
     try {
       const response = await onSend(content, { confirmed, idempotencyKey: confirmed ? crypto.randomUUID() : undefined })
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'assistant', text: response.text, traces: response.traces }])
-      onCitations(response.citations ?? [])
+      onCitations(response.citations ?? citationsFromTraces(response.traces))
     } catch {
       setError('Agent 请求未能完成，请稍后重试。')
       setText(content)

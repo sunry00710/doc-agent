@@ -4,6 +4,16 @@
 检查 / 改写建议 / 版本对比 / 评审批注 / 起草，知识库支持检索与晋升治理，评审工作流覆盖
 「提交 → 评审 → 批准 → 晋升 → 索引」全链路。演示模式（FakeProvider）离线可跑，可无网演示。
 
+## 界面预览
+
+| Agent 工作台（右栏是检索到的引文证据） | 知识库检索（命中片段带原文引文） |
+| --- | --- |
+| ![Agent 工作台](docs/images/02-agent-workspace.png) | ![知识库检索](docs/images/04-knowledge-search.png) |
+
+| 文档版本与质量门 | 登录 |
+| --- | --- |
+| ![文档](docs/images/03-documents.png) | ![登录](docs/images/01-login.png) |
+
 ## 60 秒启动（Windows）
 
 ```bash
