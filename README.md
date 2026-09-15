@@ -1,6 +1,7 @@
 # Doc Agent · 审计文书质量工作台
 
 [![CI](https://github.com/sunry00710/doc-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/sunry00710/doc-agent/actions/workflows/ci.yml)
+[![E2E](https://github.com/sunry00710/doc-agent/actions/workflows/e2e.yml/badge.svg)](https://github.com/sunry00710/doc-agent/actions/workflows/e2e.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 ![Node](https://img.shields.io/badge/Node-20.19%2B%20%7C%2022.12%2B-339933)
