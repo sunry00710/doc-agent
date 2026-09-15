@@ -1,4 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect as baseExpect, test, type Page } from '@playwright/test'
+
+// 提交/领取/批准等写操作与后台索引 worker 共用同一个 SQLite（单写者）。
+// worker 正在建索引时，API 的写事务会排队等待（busy_timeout=15s），
+// 因此本 spec 的断言窗口放宽到 15s，避免把「等待写锁」误判成功能失败。
+const expect = baseExpect.configure({ timeout: 15_000 })
 
 const fixture = JSON.parse(process.env.DOC_AGENT_ISOLATED_E2E ?? '{}') as {
   baseURL: string; author: string; reviewer: string; admin: string; password: string

@@ -122,7 +122,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ],
     )
     app.state.settings = settings or Settings()
-    app.state.database_engine = create_database_engine(app.state.settings.database_url)
+    # API 侧开启 IMMEDIATE 事务：写路径都是「先读校验、再写更新」，
+    # 与独立 worker 并发提交时会产生 SQLITE_BUSY_SNAPSHOT（见 db/session.py 注释）。
+    app.state.database_engine = create_database_engine(
+        app.state.settings.database_url, immediate_transactions=True
+    )
     app.state.session_factory = create_session_factory(app.state.database_engine)
     app.state.agent_provider = build_provider(app.state.settings)
     # 工具注册表建在应用启动时：InMemoryIdempotencyStore 的生命周期必须跨请求，

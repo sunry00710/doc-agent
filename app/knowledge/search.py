@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from abc import ABC, abstractmethod
+from itertools import pairwise
 
 import numpy as np
 from sqlalchemy import select, text
@@ -30,11 +31,42 @@ RankedChunk = RankedId
 _DENSE_CANDIDATE_LIMIT = 5_000
 
 
-def _fts_query(query: str) -> str:
-    tokens: list[str] = []
+def _is_cjk(character: str) -> bool:
+    return "\u4e00" <= character <= "\u9fff"
+
+
+def _query_terms(query: str) -> list[str]:
+    """把查询拆成与索引侧一致的检索单元。
+
+    索引侧由 `ingestion._fts_text` 把每个汉字单独成词（标题路径同样入索引），
+    因此查询侧也必须逐字拆开；拉丁词与数字保持整词。
+    """
+    terms: list[str] = []
     for part in re.findall(r"[\w]+", query, flags=re.UNICODE):
-        tokens.extend(character for character in part if "一" <= character <= "鿿") if any("一" <= character <= "鿿" for character in part) else tokens.append(part)
-    return " AND ".join(f'"{token}"' for token in tokens)
+        if any(_is_cjk(character) for character in part):
+            terms.extend(character for character in part if _is_cjk(character))
+        else:
+            terms.append(part)
+    return terms
+
+
+def _fts_query(query: str) -> str:
+    """精度优先：所有检索单元必须命中同一块。"""
+    return " AND ".join(f'"{term}"' for term in _query_terms(query))
+
+
+def _fts_query_any(query: str) -> str:
+    """召回优先：任一「相邻两字短语」命中即可，由 bm25 排序。
+
+    索引里的单字 token 保留了原文顺序，因此 FTS5 短语查询（`"差 旅"`）等价于
+    一次 bigram 匹配。用它兜底而不是用单字 OR，可以避免「量子计算」这类查询
+    仅凭一个「计」字就匹配到「计算机」，把无关内容灌进上下文。
+    """
+    phrases: list[str] = []
+    for part in re.findall(r"[\w]+", query, flags=re.UNICODE):
+        characters = [character for character in part if _is_cjk(character)]
+        phrases.extend(f'"{first} {second}"' for first, second in pairwise(characters))
+    return " OR ".join(dict.fromkeys(phrases))
 
 
 class SearchBackend(ABC):
@@ -48,23 +80,21 @@ class SearchBackend(ABC):
 
 
 class SQLiteFtsBackend(SearchBackend):
-    """SQLite FTS adapter; authorization IDs are applied inside the ranked query."""
+    """SQLite FTS adapter; authorization IDs are applied inside the ranked query.
+
+    有意的降级检索：先按单字 AND 取精确结果，零命中时再用相邻二字短语兜底召回。
+    中文按单字建索引（见 `ingestion._fts_text`），AND 检索式的约束强度与「输入了多少个字」
+    成正比而非与「表达了多少个概念」成正比——实测「差旅补助」能命中而「差旅补助标准」
+    返回空，长自然语言查询因此在关键词模式下搜不到内容。
+
+    两个边界：拉丁词是整词 token，AND（"两个词都要出现"）本就是预期语义，不参与降级；
+    汉字数量不足两个时也没有可用的 bigram，同样不降级。两种情况都会得到空的兜底检索式。
+    """
+
     def __init__(self, session: Session):
         self.session = session
 
-    def search(
-        self,
-        query: str,
-        authorized_generation_ids: frozenset[str],
-        limit: int,
-    ) -> list[RankedChunk]:
-        if self.session.bind is None or self.session.bind.dialect.name != "sqlite":
-            raise AppError("index_failure", "Knowledge index is temporarily unavailable", 500)
-        fts_query = _fts_query(query)
-        if not fts_query:
-            raise AppError("validation_error", "Invalid knowledge search query", 422)
-        if not authorized_generation_ids:
-            return []
+    def _run(self, fts_query: str, authorized_generation_ids: frozenset[str], limit: int) -> list[RankedChunk]:
         statement = text(
             "SELECT f.chunk_id, f.generation_id, bm25(knowledge_chunks_fts) AS score "
             "FROM knowledge_chunks_fts AS f "
@@ -80,6 +110,27 @@ class SQLiteFtsBackend(SearchBackend):
         except OperationalError as exc:
             raise AppError("index_failure", "Knowledge index is temporarily unavailable", 500) from exc
         return [RankedChunk(chunk_id=row.chunk_id, generation_id=row.generation_id, score=float(row.score)) for row in rows]
+
+    def search(
+        self,
+        query: str,
+        authorized_generation_ids: frozenset[str],
+        limit: int,
+    ) -> list[RankedChunk]:
+        if self.session.bind is None or self.session.bind.dialect.name != "sqlite":
+            raise AppError("index_failure", "Knowledge index is temporarily unavailable", 500)
+        fts_query = _fts_query(query)
+        if not fts_query:
+            raise AppError("validation_error", "Invalid knowledge search query", 422)
+        if not authorized_generation_ids:
+            return []
+        ranked = self._run(fts_query, authorized_generation_ids, limit)
+        if ranked:
+            return ranked
+        fallback = _fts_query_any(query)
+        if not fallback:
+            return ranked
+        return self._run(fallback, authorized_generation_ids, limit)
 
 
 class DenseBackend:

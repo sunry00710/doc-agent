@@ -20,17 +20,24 @@
 # 1. 后端依赖（需要 uv 与 Node.js 20.19+/22.12+，Vite 要求）
 uv sync
 
-# 2. 初始化数据库并灌入演示数据（幂等，可重复执行）
-uv run python scripts/seed_demo.py
-uv run python scripts/seed_roles.py    # 补齐三角色账号（管理员/上级/下级）
+# 2. 建库建表（首次必跑：种子脚本不会自动建表）
+uv run alembic upgrade head
 
-# 3. 启动后端 + 后台 worker（Ctrl+C 停止）
+# 3. 灌入演示数据（幂等，可重复执行）
+uv run python scripts/seed_demo.py
+uv run python scripts/seed_roles.py       # 补齐三角色账号（管理员/上级/下级）
+uv run python scripts/seed_knowledge.py   # 8 份制度文档：知识库检索与引文演示需要
+
+# 4. 启动后端 + 后台 worker（Ctrl+C 停止）
 uv run python run_dev.py
 
-# 4. 另开终端启动前端
+# 5. 另开终端启动前端
 npm --prefix web install
 npm --prefix web run dev
 ```
+
+> `run_dev.py` 启动时也会自动执行 `alembic upgrade head`，但第 3 步的种子脚本依赖表已存在。
+> 全新克隆请按上面顺序执行；也可以先启动一次服务，再补跑第 3 步。
 
 打开 `http://127.0.0.1:5173/`，用 `scripts/seed_roles.py` 输出的账号登录：
 
@@ -41,6 +48,21 @@ npm --prefix web run dev
 | `xiashu` | `StaffPass-2026!` | 下级（员工） | 编辑提交、评论、向知识库投稿 |
 
 > 以上密码仅用于本地演示，部署到共享环境前必须更换。
+
+### 无外网 / 无法访问 HuggingFace 时的离线演示
+
+语义检索默认开启（`EMBEDDING_ENABLED=true`），首次建索引会从 HuggingFace 拉取
+`BAAI/bge-small-zh-v1.5`。内网或无外网环境下这一步会失败，导致文档索引任务报错。
+离线演示请显式关闭向量召回：
+
+```bash
+cp .env.example .env
+# 编辑 .env：EMBEDDING_ENABLED=false
+```
+
+此时检索走 SQLite FTS5 关键词召回 + 引文溯源，功能可用，只是不再有向量召回
+（`mode=hybrid` 在没有可用向量时退化为关键词检索）。这是有意的降级设计，不是缺陷。
+若能访问镜像，也可改走镜像而不关向量：`HF_ENDPOINT=https://hf-mirror.com`。
 
 ## 常用命令
 
