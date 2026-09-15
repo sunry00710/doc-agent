@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend (ruff + pytest)
+    runs-on: ubuntu-latest
+    env:
+      # uv.lock 记录的是 aliyun 镜像源，给海外 runner 留足超时余量
+      UV_HTTP_TIMEOUT: "180"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check app tests
+      - name: Test
+        run: uv run pytest tests/unit tests/integration tests/evaluation -q
+
+  frontend:
+    name: Frontend (tsc + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm --prefix web ci
+      - name: Type check
+        working-directory: web
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm --prefix web test -- --run
