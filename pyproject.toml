@@ -1,6 +1,9 @@
 [project]
 name = "doc-agent"
 version = "0.1.0"
+description = "企业文档质量管控 Agent：不可变版本 + 评审工作流 + RAG 混合检索与引文溯源"
+authors = [{ name = "孙睿 (sunry)", email = "202300203137@stumail.sztu.edu.cn" }]
+maintainers = [{ name = "孙睿 (sunry)", email = "202300203137@stumail.sztu.edu.cn" }]
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.19.1",
