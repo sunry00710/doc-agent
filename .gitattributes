@@ -1,0 +1,12 @@
+# 行尾统一：仓库内一律按 LF 存储，检出时由 Git 按平台决定。
+# 缺少本文件时，Windows 侧会把 CRLF 写进仓库、Linux 侧写 LF，
+# 于是「内容完全相同」的两个版本之间也会报合并冲突（本项目已因此踩过两次）。
+* text=auto
+
+# 二进制文件不参与行尾转换，也不做文本 diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.pdf binary

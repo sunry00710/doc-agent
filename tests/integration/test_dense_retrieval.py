@@ -181,7 +181,7 @@ def test_reingestion_upgrades_keyword_only_active_generation(tmp_path: Path):
     engine.dispose()
 
 
-def test_dense_retrieval_has_a_bounded_authorized_candidate_set(tmp_path: Path):
+def test_dense_retrieval_rejects_candidate_sets_beyond_the_brute_force_limit(tmp_path: Path):
     engine, factory, _storage = setup_database(tmp_path)
     provider = FakeEmbeddingProvider({"query": [1, 0, 0]})
     with factory() as session:
@@ -200,9 +200,18 @@ def test_dense_retrieval_has_a_bounded_authorized_candidate_set(tmp_path: Path):
         )
         session.commit()
 
-        ranked = DenseBackend(session, provider).search("query", frozenset({generation_id}), _DENSE_CANDIDATE_LIMIT + 1)
+        # 超限必须显式失败：用 ORDER BY chunk_id LIMIT 截断等于任意丢弃，
+        # 会静默漏掉更相似的候选而不报错。
+        with pytest.raises(AppError) as caught:
+            DenseBackend(session, provider).search("query", frozenset({generation_id}), _DENSE_CANDIDATE_LIMIT + 1)
+        assert caught.value.code == "index_failure"
+        assert caught.value.status_code == 500
 
-        assert len(ranked) == _DENSE_CANDIDATE_LIMIT
+        # 退回上限以内即恢复正常服务，不是"碰一次就永久不可用"
+        session.execute(text("DELETE FROM knowledge_embeddings WHERE chunk_id = 'chunk-0'"))
+        session.commit()
+        ranked = DenseBackend(session, provider).search("query", frozenset({generation_id}), 5)
+        assert len(ranked) == 5
     engine.dispose()
 
 

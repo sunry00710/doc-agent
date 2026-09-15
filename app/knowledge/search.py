@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from itertools import pairwise
 
 import numpy as np
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -134,6 +134,15 @@ class SQLiteFtsBackend(SearchBackend):
 
 
 class DenseBackend:
+    """SQLite 下的暴力向量检索：把授权范围内的向量全部载入内存做点积，没有 ANN 索引。
+
+    候选上限 `_DENSE_CANDIDATE_LIMIT` 用于兜住内存，但**不能**用 `ORDER BY ... LIMIT`
+    来实现：那不是「取最相似的 N 个」，而是按 chunk_id 字典序任意丢弃——一旦超过阈值，
+    结果就会静默出错（漏掉更相似的块，界面上却看不出任何异常）。因此这里先计数，
+    超限直接报错，与既有「语义检索硬失败」的取舍保持一致：宁可失败，也不返回一个
+    看起来正常但实际不完整的子集。
+    """
+
     def __init__(self, session: Session, provider: EmbeddingProvider):
         self.session = session
         self.provider = provider
@@ -147,12 +156,30 @@ class DenseBackend:
         if not authorized_generation_ids:
             return []
         try:
-            rows = self.session.execute(
-                select(KnowledgeEmbedding)
+            candidates = self.session.scalar(
+                select(func.count())
+                .select_from(KnowledgeEmbedding)
                 .where(KnowledgeEmbedding.generation_id.in_(authorized_generation_ids))
-                .order_by(KnowledgeEmbedding.generation_id, KnowledgeEmbedding.chunk_id)
-                .limit(_DENSE_CANDIDATE_LIMIT)
-            ).scalars().all()
+            )
+            if not candidates:
+                return []
+            if candidates > _DENSE_CANDIDATE_LIMIT:
+                raise AppError(
+                    "index_failure",
+                    "Knowledge index exceeds the brute-force vector search limit "
+                    f"({candidates} > {_DENSE_CANDIDATE_LIMIT} vectors); move to an "
+                    "ANN-indexed vector store before enabling dense or hybrid retrieval",
+                    500,
+                )
+            rows = (
+                self.session.execute(
+                    select(KnowledgeEmbedding).where(
+                        KnowledgeEmbedding.generation_id.in_(authorized_generation_ids)
+                    )
+                )
+                .scalars()
+                .all()
+            )
         except OperationalError as exc:
             raise AppError("index_failure", "Knowledge index is temporarily unavailable", 500) from exc
         if not rows:

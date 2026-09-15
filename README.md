@@ -1,5 +1,10 @@
 # Doc Agent · 审计文书质量工作台
 
+[![CI](https://github.com/sunry00710/doc-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/sunry00710/doc-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
+![Node](https://img.shields.io/badge/Node-20.19%2B%20%7C%2022.12%2B-339933)
+
 面向审计文书场景的文档质量工作台：项目内维护不可变文档版本，Agent 基于绑定版本做
 检查 / 改写建议 / 版本对比 / 评审批注 / 起草，知识库支持检索与晋升治理，评审工作流覆盖
 「提交 → 评审 → 批准 → 晋升 → 索引」全链路。演示模式（FakeProvider）离线可跑，可无网演示。
