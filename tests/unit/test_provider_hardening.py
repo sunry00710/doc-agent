@@ -71,7 +71,17 @@ def test_openai_uses_remaining_deadline_as_timeout():
         observed.append(request.extensions["timeout"]["connect"])
         return httpx.Response(200, json={"choices": [{"message": {"content": "done"}}]})
 
-    provider = OpenAICompatibleProvider("https://provider.invalid", "secret", "model", timeout_seconds=30, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    # 剩余超时 = deadline - monotonic()。用真实时钟时该值会随平台时钟精度漂移：
+    # Windows 粒度粗，两次调用常返回同一值 -> 恰好 2.5；Linux 纳秒级 -> 2.4999995。
+    # 注入常量时钟，让断言与运行环境无关。
+    provider = OpenAICompatibleProvider(
+        "https://provider.invalid",
+        "secret",
+        "model",
+        timeout_seconds=30,
+        monotonic=lambda: 100.0,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
     provider.complete(CompletionRequest(messages=[ModelMessage(role="user", content="go")], timeout_seconds=2.5))
     assert observed == [2.5]
 

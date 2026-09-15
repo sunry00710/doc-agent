@@ -3,9 +3,6 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  test: {
-    exclude: ['e2e/**', 'node_modules/**'],
-  },
   server: {
     proxy: {
       '/api': process.env.DOC_AGENT_API_URL ?? 'http://127.0.0.1:8000',
