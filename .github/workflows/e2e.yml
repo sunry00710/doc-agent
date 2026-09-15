@@ -1,0 +1,45 @@
+name: E2E
+
+# 与 ci.yml 分开：E2E 要起真实后端 + worker + 前端，明显更慢也更容易受 runner 负载影响。
+# 独立成一条 workflow，它偶发波动不会把主 CI 的绿 badge 带红。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  playwright:
+    name: Playwright (chromium)
+    runs-on: ubuntu-latest
+    env:
+      UV_HTTP_TIMEOUT: "180"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Sync backend dependencies
+        run: uv sync --frozen
+      - name: Install web dependencies
+        run: npm --prefix web ci
+      - name: Install Playwright chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E
+        # globalSetup 会自起隔离环境（临时库 + 临时 storage + 独立端口 + backend/worker/frontend），
+        # 并把 EMBEDDING_ENABLED 置为 false，避免依赖 fastembed 模型缓存。
+        run: npm --prefix web run test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
