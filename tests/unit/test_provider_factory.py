@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.providers.base import ProviderError
@@ -32,33 +33,7 @@ def test_self_provider_builds_openai_compatible() -> None:
     assert provider.model == "deepseek-chat"
 
 
-def test_internal_provider_requires_configuration() -> None:
-    with pytest.raises(ProviderError, match="internal_api_not_configured"):
-        build_provider(Settings(environment="test", model_provider="internal"))
-
-
-def test_internal_provider_builds_openai_compatible() -> None:
-    settings = Settings(
-        environment="test",
-        model_provider="internal",
-        internal_api_endpoint="https://gw.corp.internal/v1",
-        internal_api_key="corp-key",
-        internal_api_model="corp-model",
-    )
-    provider = build_provider(settings)
-    assert isinstance(provider, OpenAICompatibleProvider)
-    assert provider.endpoint == "https://gw.corp.internal/v1"
-    assert provider.model == "corp-model"
-
-
-def test_self_and_internal_are_independent() -> None:
-    """两个接口各自独立：配置了 self 不影响 internal 的未配置报错。"""
-    settings = Settings(
-        environment="test",
-        model_provider="internal",
-        self_ai_endpoint="https://api.deepseek.com/v1",
-        self_ai_api_key="sk-test",
-        self_ai_model="deepseek-chat",
-    )
-    with pytest.raises(ProviderError, match="internal_api_not_configured"):
-        build_provider(settings)
+def test_unknown_provider_is_rejected_at_settings_load() -> None:
+    """provider 取值由 Settings 的 Literal 约束，非法值在构造配置时就报错。"""
+    with pytest.raises(ValidationError):
+        Settings(environment="test", model_provider="openai")

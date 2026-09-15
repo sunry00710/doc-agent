@@ -20,7 +20,7 @@ const ENGINE_DETAILS: Record<string, string> = {
 }
 
 const DEGRADED_REASONS: Record<string, string> = {
-  provider_not_configured: '未配置真实模型（MODEL_PROVIDER=fake）。配置 MODEL_PROVIDER=self 或 internal 后自动启用语义对比。',
+  provider_not_configured: '未配置真实模型（MODEL_PROVIDER=fake）。把 MODEL_PROVIDER 设为 self 并填好 SELF_AI_* 后自动启用语义对比。',
   provider_unavailable: '模型服务暂时不可用（超时或网络错误），已回退为逐行差异，可稍后重试。',
   provider_invalid_response: '模型返回的结果无法解析，已回退为逐行差异。',
   provider_offline: '当前为离线演示模型，本功能需要真实模型。',

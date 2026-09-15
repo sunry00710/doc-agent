@@ -2,7 +2,7 @@
 
 三种引擎，结果里如实回报用的是哪一种（``ComparisonOutcome.engine``）：
 
-- ``llm``：真实模型（self / internal provider）做语义对比，识别「改写但语义等价」的段落；
+- ``llm``：真实模型（self provider）做语义对比，识别「改写但语义等价」的段落；
 - ``heuristic``：离线演示（``FakeProvider``）——段落级 diff + 文本相似度判定，本地启发式，
   不冒称模型能力；
 - ``difflib``：真实模型不可用或返回非法结果时回退逐行 diff，``degraded=True``，

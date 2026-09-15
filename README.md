@@ -95,7 +95,7 @@ app/
   quality/           质量工具（检查/改写/对比/评审/评判/起草）、提示词、写作契约
   knowledge/         知识空间、切块、检索（FTS+向量）、晋升治理、索引任务
   jobs/              持久化任务队列（生产端/worker/心跳/重试）
-  providers/         模型接入（fake / self / internal）
+  providers/         模型接入（fake / self）
 web/                 React 前端（Vite + TS）
   src/app/           壳与导航、全局状态（App.tsx）
   src/features/      各功能工作面（agent/documents/knowledge/reviews/comparison/management…）
@@ -117,7 +117,7 @@ docs/                使用手册、架构说明、运维 runbook、历次交接
 - **权限双层**：全局角色（admin/reviewer/user）× 项目角色（owner/reviewer/contributor），
   后端 `require_project_permission` 是唯一权威，前端只做入口显隐。
   全局角色判断必须经 `app/identity/roles.py` / `web/src/app/roles.ts`（多角色演进接缝）。
-- **模型接入**：`MODEL_PROVIDER=fake|self|internal`；fake 为离线演示（语义对比自动降级为
+- **模型接入**：`MODEL_PROVIDER=fake|self`；fake 为离线演示（语义对比自动降级为
   启发式并如实标注引擎），接真实模型配 `.env`（见 `.env.example`）。
 
 ## 文档索引
@@ -133,4 +133,3 @@ docs/                使用手册、架构说明、运维 runbook、历次交接
 | `docs/开发指南.md` | **下一步开发**：代码约定、扩展步骤（加端点/工具/任务/迁移）、优先待办、技术债 |
 | `docs/多角色迁移方案.md` | 「一人兼多角色」迁移方案（角色判断已收敛到 roles.py / roles.ts） |
 | `docs/运维手册.md` | 备份恢复、日志、常见故障处理 |
-| `docs/交付记录-2026-09-11.md` | 本次交付的完整改动与验证记录 |

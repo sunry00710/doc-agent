@@ -137,7 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_knowledge_tools(agent_tools)
     app.state.agent_tools = agent_tools
 
-    # 默认不开放跨域（前端经 Vite 代理同源访问）；集团内部接入方可在环境变量中列入白名单
+    # 默认不开放跨域（前端经 Vite 代理同源访问）；前后端分域部署时可在环境变量中列入白名单
     if app.state.settings.cors_allowed_origins:
         app.add_middleware(
             CORSMiddleware,

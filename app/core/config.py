@@ -11,16 +11,12 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "staging", "production"] = "development"
     database_url: str = "sqlite:///./doc_agent.db"
     jwt_secret: SecretStr = SecretStr(DEVELOPMENT_JWT_SECRET)
-    # 模型接入：fake=本地演示 | self=自用 AI（OpenAI 兼容） | internal=集团内网 API
-    model_provider: Literal["fake", "self", "internal"] = "fake"
+    # 模型接入：fake=本地演示 | self=自用 AI（OpenAI 兼容）
+    model_provider: Literal["fake", "self"] = "fake"
     # 自用 AI 接口（如 DeepSeek，OpenAI 兼容协议）
     self_ai_endpoint: str = ""
     self_ai_api_key: SecretStr = SecretStr("")
     self_ai_model: str = ""
-    # 集团内网 API 接口（协议未定，接入时确认；当前与自用同为 OpenAI 兼容假设）
-    internal_api_endpoint: str = ""
-    internal_api_key: SecretStr = SecretStr("")
-    internal_api_model: str = ""
     provider_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     # 语义检索向量：默认开启。离线/无模型缓存的内网环境可设 false 退回纯关键词
     # （检索仍可用，只是不再有向量召回；当前响应无 degraded 字段，前端不作降级提示）。
