@@ -1,0 +1,30 @@
+# 构建上下文排除：只送源码进去，避免把本地环境/数据/产物打包
+.git/
+.github/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# 本地数据与密钥（绝不能进镜像）
+.env
+doc_agent.db
+doc_agent.db-*
+storage/
+backups/
+
+# 前端
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+web/.edge-profile/
+
+# 文档与杂项
+docs/images/
+*.zip
+dist/

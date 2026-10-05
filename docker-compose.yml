@@ -1,0 +1,29 @@
+# Doc Agent 一键启动（单个容器：nginx + FastAPI + worker）
+#
+#   docker compose up -d --build     # 构建并启动，浏览器打开 http://localhost:8000
+#   docker compose logs -f           # 看日志
+#   docker compose down              # 停止（数据保留在命名卷）
+#   docker compose down -v           # 停止并清空数据
+#
+# 演示账号密码见 README「60 秒启动」表格。
+
+services:
+  doc-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: doc-agent:local
+    ports:
+      - "8000:80"                  # 宿主机 8000 → 容器内 nginx 80
+    environment:
+      ENVIRONMENT: development
+      MODEL_PROVIDER: fake         # 离线演示，无需任何模型密钥
+      EMBEDDING_ENABLED: "false"   # 跳过 HuggingFace 下载，用 FTS5 关键词检索
+      SEED_DEMO: "true"            # 首次启动自动灌演示数据（幂等）
+      JWT_SECRET: docker-compose-demo-secret-change-me
+    volumes:
+      - doc-agent-data:/data
+    restart: unless-stopped
+
+volumes:
+  doc-agent-data:

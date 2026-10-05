@@ -10,3 +10,12 @@
 *.gif binary
 *.zip binary
 *.pdf binary
+
+# Shell 脚本与 Docker 相关文件强制 LF：容器内以 CRLF 结尾的脚本会报
+# `\r: not found` 直接启动失败（Windows 检出时尤其容易踩到）
+*.sh text eol=lf
+docker/* text eol=lf
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+docker-compose.yml text eol=lf
+docker-compose.*.yml text eol=lf
